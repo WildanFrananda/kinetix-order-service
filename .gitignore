@@ -1,38 +1,6 @@
-## --- .NET 10 Build & Execution Outputs ---
-[Bb]in/
-[Oo]bj/
-artifacts/
-TestResult*/
-BenchmarkDotNet.Artifacts/
-*.binlog
-*.log
-
-## --- User-specific & IDE Cache Files ---
-.vs/
+bin/
+obj/
 .vscode/
 .idea/
-*.suo
-*.user
-*.userosscache
-*.sln.docstates
-.ionide/
-
-## --- Package & Tool Restores ---
-*.nupkg
-*.snupkg
-**/[Pp]ackages/*
-!**/[Pp]ackages/build/
-.nuget/
-.tools/
-
-## --- Secrets & Environment Configurations ---
-# It is recommended to use .NET User Secrets for local development.
-# If you use dotenv or appsettings overrides, keep them ignored.
 .env
-.env.*
-appsettings.Development.json
-appsettings.local.json
-
-## --- OS Generated Files ---
-Thumbs.db
-.DS_Store
+!.env.example

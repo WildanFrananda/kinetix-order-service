@@ -3,11 +3,13 @@ using Kinetix.OrderService.Application.Services;
 using Kinetix.OrderService.Grpc.Pricing;
 using Kinetix.OrderService.Infrastructure.Persistence;
 
+EnvLoader.Load();
+
 var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = builder.Configuration["DATABASE_URL"]
     ?? builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("DATABASE_URL or ConnectionStrings:DefaultConnection environment variable is required and missing.");
+    ?? throw new InvalidOperationException("DATABASE_URL environment variable is required and missing.");
 
 builder.Services.AddDbContext<OrderDbContext>(options =>
     options.UseNpgsql(connectionString));
@@ -21,7 +23,9 @@ builder.Services.AddStackExchangeRedisCache(options => {
     options.InstanceName = "KinetixOrder:";
 });
 
-var pricingGrpcUrl = builder.Configuration["PRICING_GRPC_URL"] ?? "http://kinetix-pricing-service:50054";
+var pricingGrpcUrl = builder.Configuration["PRICING_GRPC_URL"]
+    ?? throw new InvalidOperationException("PRICING_GRPC_URL environment variable is required and missing.");
+
 builder.Services.AddGrpcClient<PricingService.PricingServiceClient>(options => {
     options.Address = new Uri(pricingGrpcUrl);
 });

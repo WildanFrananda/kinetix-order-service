@@ -26,10 +26,8 @@ services:
     container_name: kinetix-order-service
     ports:
       - "8001:8001"
-    environment:
-      - PORT=8001
-      - DATABASE_URL=Host=kinetix-order-postgres;Port=5432;Database=kinetix_order_dev;Username=postgres;Password=postgrespassword
-      - REDIS_CONNECTION_STRING=kinetix-redis:6379,password=kinetix_redis_pass
+    env_file:
+      - .env
     depends_on:
       kinetix-order-postgres:
         condition: service_healthy
