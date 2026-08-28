@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package pricing.v1;
+
+option csharp_namespace = "Kinetix.OrderService.Grpc.Pricing";
+
+message PriceItemRequest {
+  string product_id = 1;
+  optional string category_id = 2;
+  string base_price = 3;
+  int32 quantity = 4;
+}
+
+message CalculatePriceRequest {
+  repeated PriceItemRequest items = 1;
+  optional string voucher_code = 2;
+}
+
+message PriceItemResponse {
+  string product_id = 1;
+  string base_price = 2;
+  string final_unit_price = 3;
+  int32 quantity = 4;
+  string line_total = 5;
+  optional string applied_flash_sale = 6;
+  optional string applied_discount = 7;
+}
+
+message CalculatePriceResponse {
+  string subtotal = 1;
+  string total_discount = 2;
+  string voucher_discount = 3;
+  string final_total = 4;
+  optional string applied_voucher = 5;
+  repeated PriceItemResponse items = 6;
+}
+
+service PricingService {
+  rpc CalculatePrice (CalculatePriceRequest) returns (CalculatePriceResponse);
+}
