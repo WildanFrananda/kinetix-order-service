@@ -40,6 +40,23 @@ public class Order {
     public decimal FinalTotal { get; set; }
 
     [Required]
+    [MaxLength(50)]
+    [Column("shipping_service_tier")]
+    public string ShippingServiceTier { get; set; } = "KINETIX_REGULAR";
+
+    [Column("base_shipping_fee", TypeName = "decimal(18,2)")]
+    public decimal BaseShippingFee { get; set; }
+
+    [Column("shipping_discount", TypeName = "decimal(18,2)")]
+    public decimal ShippingDiscount { get; set; }
+
+    [Column("final_shipping_fee", TypeName = "decimal(18,2)")]
+    public decimal FinalShippingFee { get; set; }
+
+    [Column("distance_km")]
+    public double DistanceKm { get; set; }
+
+    [Required]
     [MaxLength(500)]
     [Column("shipping_address")]
     public string ShippingAddress { get; set; } = string.Empty;

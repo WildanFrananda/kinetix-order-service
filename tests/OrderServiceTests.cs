@@ -36,11 +36,11 @@ public class OrderServiceTests {
         mockCartService.Setup(s => s.GetCartAsync(customerId))
             .ReturnsAsync(cart);
 
-        mockPricingClient.Setup(p => p.CalculateVoucherDiscountAsync("DISCOUNT10", 200000m))
-            .ReturnsAsync(20000m);
+        mockPricingClient.Setup(p => p.CalculatePriceAsync("DISCOUNT10", 200000m, 15000m))
+            .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 15000m, 0m, 15000m, 195000m));
 
         var orderService = new Application.Services.OrderService(dbContext, mockCartService.Object, mockPricingClient.Object);
-        var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "DISCOUNT10");
+        var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "DISCOUNT10", "KINETIX_INSTANT", 15000m, 5.2);
 
         // Act
         var result = await orderService.CheckoutAsync(customerId, request, "IDEMP-KEY-12345");
@@ -51,10 +51,13 @@ public class OrderServiceTests {
         Assert.Equal("PENDING_PAYMENT", result.Status);
         Assert.Equal(200000m, result.Subtotal);
         Assert.Equal(20000m, result.DiscountAmount);
-        Assert.Equal(180000m, result.FinalTotal);
+        Assert.Equal(15000m, result.BaseShippingFee);
+        Assert.Equal(195000m, result.FinalTotal);
+        Assert.Equal("KINETIX_INSTANT", result.ShippingServiceTier);
+        Assert.Equal(5.2, result.DistanceKm);
 
         mockCartService.Verify(s => s.ClearCartAsync(customerId), Times.Once);
-        mockPricingClient.Verify(p => p.CalculateVoucherDiscountAsync("DISCOUNT10", 200000m), Times.Once);
+        mockPricingClient.Verify(p => p.CalculatePriceAsync("DISCOUNT10", 200000m, 15000m), Times.Once);
     }
 
     [Fact]
@@ -65,12 +68,12 @@ public class OrderServiceTests {
         var mockPricingClient = new Mock<IPricingClient>();
 
         var order = new Order {
-            OrderNumber = "ORD-TEST-001",
+            OrderNumber = "ORD-20260815-001",
             CustomerId = 1001,
             Status = OrderStatus.PENDING_PAYMENT,
             Subtotal = 100000m,
             FinalTotal = 100000m,
-            ShippingAddress = "Test Address"
+            ShippingAddress = "Jl. Sudirman No. 45, Jakarta"
         };
         dbContext.Orders.Add(order);
         await dbContext.SaveChangesAsync();
@@ -78,26 +81,26 @@ public class OrderServiceTests {
         var orderService = new Application.Services.OrderService(dbContext, mockCartService.Object, mockPricingClient.Object);
 
         // Act
-        var updatedOrder = await orderService.TransitionOrderStatusAsync(order.Id, OrderStatus.PAID);
+        var result = await orderService.TransitionOrderStatusAsync(order.Id, OrderStatus.PAID);
 
         // Assert
-        Assert.Equal("PAID", updatedOrder.Status);
+        Assert.Equal("PAID", result.Status);
     }
 
     [Fact]
-    public async Task TransitionOrderStatusAsync_InvalidTransition_ThrowsInvalidOperationException() {
+    public async Task TransitionOrderStatusAsync_InvalidTransition_ThrowsException() {
         // Arrange
         using var dbContext = GetInMemoryDbContext();
         var mockCartService = new Mock<ICartService>();
         var mockPricingClient = new Mock<IPricingClient>();
 
         var order = new Order {
-            OrderNumber = "ORD-TEST-002",
+            OrderNumber = "ORD-20260815-002",
             CustomerId = 1001,
             Status = OrderStatus.PENDING_PAYMENT,
             Subtotal = 100000m,
             FinalTotal = 100000m,
-            ShippingAddress = "Test Address"
+            ShippingAddress = "Jl. Sudirman No. 45, Jakarta"
         };
         dbContext.Orders.Add(order);
         await dbContext.SaveChangesAsync();
@@ -106,6 +109,6 @@ public class OrderServiceTests {
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            orderService.TransitionOrderStatusAsync(order.Id, OrderStatus.COMPLETED));
+            orderService.TransitionOrderStatusAsync(order.Id, OrderStatus.DELIVERED));
     }
 }

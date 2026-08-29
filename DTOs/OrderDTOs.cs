@@ -19,6 +19,11 @@ public record OrderResponse(
     string? AppliedVoucher,
     decimal FinalTotal,
     string ShippingAddress,
+    string ShippingServiceTier,
+    decimal BaseShippingFee,
+    decimal ShippingDiscount,
+    decimal FinalShippingFee,
+    double DistanceKm,
     DateTime CreatedAt,
     List<OrderItemResponse> Items
 );

@@ -30,9 +30,16 @@ builder.Services.AddGrpcClient<PricingService.PricingServiceClient>(options => {
     options.Address = new Uri(pricingGrpcUrl);
 });
 
+var matchingGrpcUrl = builder.Configuration["MATCHING_GRPC_URL"] ?? "http://kinetix-matching-service:50053";
+
+builder.Services.AddGrpcClient<Kinetix.OrderService.Grpc.Shipping.ShippingService.ShippingServiceClient>(options => {
+    options.Address = new Uri(matchingGrpcUrl);
+});
+
 builder.Services.AddGrpc();
 
 builder.Services.AddScoped<IPricingClient, PricingGrpcClient>();
+builder.Services.AddScoped<IShippingClient, ShippingGrpcClient>();
 builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 

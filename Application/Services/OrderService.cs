@@ -28,25 +28,28 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
         }
 
         decimal subtotal = cart.Items.Sum(i => i.LineTotal);
-        decimal discountAmount = 0m;
         string? appliedVoucher = request.VoucherCode ?? cart.AppliedVoucherCode;
+        decimal baseShippingFee = request.BaseShippingFee;
 
-        if (!string.IsNullOrEmpty(appliedVoucher)) {
-            discountAmount = await _pricingClient.CalculateVoucherDiscountAsync(appliedVoucher, subtotal);
-        }
+        var priceResult = await _pricingClient.CalculatePriceAsync(appliedVoucher, subtotal, baseShippingFee);
 
-        decimal finalTotal = Math.Max(0m, subtotal - discountAmount);
         string uniqueSuffix = Guid.NewGuid().ToString("N")[..8].ToUpper();
         string orderNumber = $"ORD-{DateTime.UtcNow:yyyyMMdd}-{uniqueSuffix}";
+        string serviceTier = request.ShippingServiceTier ?? "KINETIX_REGULAR";
 
         var order = new Order {
             OrderNumber = orderNumber,
             CustomerId = customerId,
             Status = OrderStatus.PENDING_PAYMENT,
-            Subtotal = subtotal,
-            DiscountAmount = discountAmount,
+            Subtotal = priceResult.Subtotal,
+            DiscountAmount = priceResult.VoucherDiscount,
             AppliedVoucher = appliedVoucher,
-            FinalTotal = finalTotal,
+            BaseShippingFee = priceResult.BaseShippingFee,
+            ShippingDiscount = priceResult.ShippingDiscount,
+            FinalShippingFee = priceResult.FinalShippingFee,
+            FinalTotal = priceResult.FinalTotal,
+            ShippingServiceTier = serviceTier,
+            DistanceKm = request.DistanceKm,
             ShippingAddress = request.ShippingAddress,
             IdempotencyKey = idempotencyKey,
             CreatedAt = DateTime.UtcNow,
@@ -140,6 +143,11 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
         order.AppliedVoucher,
         order.FinalTotal,
         order.ShippingAddress,
+        order.ShippingServiceTier,
+        order.BaseShippingFee,
+        order.ShippingDiscount,
+        order.FinalShippingFee,
+        order.DistanceKm,
         order.CreatedAt,
         [.. order.Items.Select(i => new OrderItemResponse(
             i.Id,

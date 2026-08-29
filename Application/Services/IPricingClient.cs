@@ -1,5 +1,14 @@
 namespace Kinetix.OrderService.Application.Services;
 
+public record PriceCalculationResult(
+    decimal Subtotal,
+    decimal VoucherDiscount,
+    decimal BaseShippingFee,
+    decimal ShippingDiscount,
+    decimal FinalShippingFee,
+    decimal FinalTotal
+);
+
 public interface IPricingClient {
-    Task<decimal> CalculateVoucherDiscountAsync(string voucherCode, decimal subtotal);
+    Task<PriceCalculationResult> CalculatePriceAsync(string? voucherCode, decimal subtotal, decimal baseShippingFee);
 }
