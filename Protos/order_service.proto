@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package order.v1;
+
+option csharp_namespace = "Kinetix.OrderService.Grpc.Order";
+
+service OrderGrpcService {
+  rpc GetOrderDetails(GetOrderDetailsRequest) returns (GetOrderDetailsResponse);
+}
+
+message GetOrderDetailsRequest {
+  string order_id = 1;
+}
+
+message OrderItemMessage {
+  string product_id = 1;
+  string product_title = 2;
+  double unit_price = 3;
+  int32 quantity = 4;
+  double line_subtotal = 5;
+}
+
+message GetOrderDetailsResponse {
+  string order_id = 1;
+  string order_number = 2;
+  int64 customer_id = 3;
+  string status = 4;
+  double subtotal = 5;
+  double discount_amount = 6;
+  double final_total = 7;
+  repeated OrderItemMessage items = 8;
+  bool found = 9;
+}

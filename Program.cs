@@ -30,6 +30,8 @@ builder.Services.AddGrpcClient<PricingService.PricingServiceClient>(options => {
     options.Address = new Uri(pricingGrpcUrl);
 });
 
+builder.Services.AddGrpc();
+
 builder.Services.AddScoped<IPricingClient, PricingGrpcClient>();
 builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
@@ -56,6 +58,7 @@ using (var scope = app.Services.CreateScope()) {
 
 app.UseAuthorization();
 app.MapControllers();
+app.MapGrpcService<OrderGrpcServerService>();
 
 var port = builder.Configuration["PORT"] ?? "8001";
 app.Run($"http://0.0.0.0:{port}");
