@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package payment.v1;
+
+option csharp_namespace = "Kinetix.Payment.gRPC.v1";
+
+service PaymentService {
+  rpc CreateEscrowHold (CreateEscrowHoldRequest) returns (EscrowHoldResponse);
+  rpc ReleaseEscrow (ReleaseEscrowRequest) returns (EscrowHoldResponse);
+  rpc GetEscrowStatus (GetEscrowStatusRequest) returns (EscrowHoldResponse);
+}
+
+message CreateEscrowHoldRequest {
+  string order_number = 1;
+  int64 customer_id = 2;
+  int64 merchant_id = 3;
+  int64 driver_id = 4;
+  double total_order_amount = 5;
+  double merchant_amount = 6;
+  double shipping_fee_amount = 7;
+}
+
+message ReleaseEscrowRequest {
+  string order_number = 1;
+}
+
+message GetEscrowStatusRequest {
+  string order_number = 1;
+}
+
+message EscrowHoldResponse {
+  int64 id = 1;
+  string order_number = 2;
+  int64 customer_id = 3;
+  int64 merchant_id = 4;
+  int64 driver_id = 5;
+  double total_order_amount = 6;
+  double merchant_amount = 7;
+  double shipping_fee_amount = 8;
+  string status = 9;
+  string auto_release_at = 10;
+  string created_at = 11;
+  string released_at = 12;
+}

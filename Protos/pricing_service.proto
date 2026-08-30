@@ -3,6 +3,9 @@ syntax = "proto3";
 package pricing.v1;
 
 option csharp_namespace = "Kinetix.OrderService.Grpc.Pricing";
+option go_package = "pricing/v1;pricingv1";
+option java_multiple_files = true;
+option java_package = "com.kinetix.pricing.v1";
 
 message PriceItemRequest {
   string product_id = 1;
@@ -15,6 +18,7 @@ message CalculatePriceRequest {
   repeated PriceItemRequest items = 1;
   optional string voucher_code = 2;
   optional string base_shipping_fee = 3;
+  optional string payment_method = 4;
 }
 
 message PriceItemResponse {
@@ -37,6 +41,7 @@ message CalculatePriceResponse {
   string base_shipping_fee = 7;
   string shipping_discount = 8;
   string final_shipping_fee = 9;
+  string payment_discount = 10;
 }
 
 service PricingService {
