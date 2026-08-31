@@ -10,4 +10,7 @@ WORKDIR /app
 COPY --from=build /app/publish .
 ENV PORT=8001
 EXPOSE 8001
+
+USER app
+
 ENTRYPOINT ["dotnet", "Kinetix.OrderService.dll"]
