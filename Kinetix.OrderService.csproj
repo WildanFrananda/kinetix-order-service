@@ -5,7 +5,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <DefaultItemExcludes>$(DefaultItemExcludes);tests\**</DefaultItemExcludes>
-  </PropertyGroup>
+  
+    <!-- Without a lock file, `dotnet restore` re-resolves floating and transitive versions on
+         every machine, so CI and this laptop can build different dependency graphs from the
+         same commit. The lock file is committed and restore fails if it disagrees. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+</PropertyGroup>
 
   <ItemGroup>
     <Protobuf Include="Protos\pricing_service.proto" GrpcServices="Client" />
