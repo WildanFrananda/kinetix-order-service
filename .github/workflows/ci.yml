@@ -1,0 +1,103 @@
+name: CI
+
+# Three properties this workflow exists to hold:
+#
+#   1. Warnings are errors. `-warnaserror` means a nullable-reference or obsolete-API warning
+#      fails the build instead of scrolling past in a log nobody reads.
+#   2. Restore is locked. packages.lock.json is committed and `--locked-mode` refuses to
+#      resolve anything that is not in it, so CI and a laptop cannot build different dependency
+#      graphs from the same commit.
+#   3. The schema comes only from migrations. `EnsureCreated()` used to build tables from the
+#      model inside the serving process, leaving no __EFMigrationsHistory and no way to migrate
+#      afterwards. The migrations job proves that is gone and stays gone.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+          dotnet-quality: preview
+
+      # protoc comes from the distribution, not from Grpc.Tools. MSBuild's invocation of the
+      # bundled binary dies with SIGSEGV (exit 139) even though the exact command it logs
+      # succeeds when run by hand — see the Dockerfile for the full account.
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler
+
+      # --locked-mode fails if packages.lock.json does not already describe the graph exactly.
+      - run: dotnet restore --locked-mode
+
+      - name: Build with warnings as errors
+        run: |
+          PLUGIN="$(find ~/.nuget/packages/grpc.tools -name grpc_csharp_plugin -path '*linux_x64*' | head -1)"
+          test -n "$PLUGIN" || { echo "grpc_csharp_plugin not found under the restored packages"; exit 1; }
+          dotnet build -c Release --no-restore -warnaserror \
+            -p:Protobuf_ProtocFullPath=/usr/bin/protoc \
+            -p:gRPC_PluginFullPath="$PLUGIN"
+
+  migrations:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-ephemeral-not-a-deployed-credential
+          POSTGRES_DB: kinetix_order_dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U ci"
+          --health-interval=10s --health-timeout=5s --health-retries=5
+
+    env:
+      DATABASE_URL: "Host=localhost;Port=5432;Database=kinetix_order_dev;Username=ci;Password=ci-ephemeral-not-a-deployed-credential"
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+          dotnet-quality: preview
+
+      - name: Install protoc and psql
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler postgresql-client
+
+      - run: dotnet restore --locked-mode
+
+      - name: Build
+        run: |
+          PLUGIN="$(find ~/.nuget/packages/grpc.tools -name grpc_csharp_plugin -path '*linux_x64*' | head -1)"
+          dotnet build -c Release --no-restore \
+            -p:Protobuf_ProtocFullPath=/usr/bin/protoc \
+            -p:gRPC_PluginFullPath="$PLUGIN"
+
+      - name: Apply migrations to an empty database
+        run: dotnet run -c Release --no-build -- --migrate
+
+      - name: A second run must apply nothing
+        run: dotnet run -c Release --no-build -- --migrate | grep -q 'schema is up to date'
+
+      # Nothing may create tables outside a migration. EnsureCreated leaves no history row, so
+      # the count is the assertion.
+      - name: The schema must have come from migrations
+        run: |
+          applied=$(PGPASSWORD=ci-ephemeral-not-a-deployed-credential \
+            psql -h localhost -U ci -d kinetix_order_dev -tAc 'select count(*) from "__EFMigrationsHistory"' | tr -d ' ')
+          test "$applied" -ge 1 || {
+            echo "__EFMigrationsHistory is empty: the schema did not come from migrations"
+            exit 1
+          }
+          echo "$applied migration(s) recorded"

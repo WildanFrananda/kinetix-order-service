@@ -1,0 +1,101 @@
+# Kinetix order CI — GitLab.
+#
+# ⚠ PAIRED FILE: .github/workflows/ci.yml
+# `origin` is GitHub and GitLab is a mirror. Both assert the same things and must be changed
+# together; if they drift, the two platforms disagree about whether the same commit is good.
+#
+# Three properties this pipeline exists to hold:
+#
+#   1. Warnings are errors. `-warnaserror` means a nullable-reference or obsolete-API warning
+#      fails the build instead of scrolling past in a log nobody reads.
+#   2. Restore is locked. packages.lock.json is committed and `--locked-mode` refuses to
+#      resolve anything not in it, so CI and a laptop cannot build different dependency graphs
+#      from the same commit.
+#   3. The schema comes only from migrations. `EnsureCreated()` used to build tables from the
+#      model inside the serving process, leaving no __EFMigrationsHistory and no way to migrate
+#      afterwards.
+
+include:
+  - project: 'WildanFrananda/kinetix-infrastructure'
+    ref: main
+    file: '/ci/service-ci.yml'
+
+stages:
+  - verify
+  - build
+  - test
+
+variables:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+.dotnet:
+  image: mcr.microsoft.com/dotnet/sdk:10.0-preview
+  before_script:
+    # protoc comes from the distribution, not from Grpc.Tools. MSBuild's invocation of the
+    # bundled binary dies with SIGSEGV (exit 139) even though the exact command it logs
+    # succeeds when run by hand — see the Dockerfile for the full account.
+    - apt-get update -qq && apt-get install -y --no-install-recommends protobuf-compiler postgresql-client
+  cache:
+    key:
+      files:
+        - packages.lock.json
+    paths:
+      - .nuget/packages
+
+secret-scan:
+  extends: .secret-scan
+
+build-image:
+  extends: .build-image
+
+build:
+  extends: .dotnet
+  stage: verify
+  script:
+    # --locked-mode fails if packages.lock.json does not already describe the graph exactly.
+    - dotnet restore --locked-mode
+    - |
+      PLUGIN="$(find /root/.nuget/packages/grpc.tools -name grpc_csharp_plugin \
+        \( -path '*linux_x64*' -o -path '*linux_arm64*' \) | head -1)"
+      test -n "$PLUGIN" || { echo "grpc_csharp_plugin not found under the restored packages"; exit 1; }
+      dotnet build -c Release --no-restore -warnaserror \
+        -p:Protobuf_ProtocFullPath=/usr/bin/protoc \
+        -p:gRPC_PluginFullPath="$PLUGIN"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+migrations:
+  extends: .dotnet
+  stage: test
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_USER: ci
+    POSTGRES_PASSWORD: ci-ephemeral-not-a-deployed-credential
+    POSTGRES_DB: kinetix_order_dev
+    POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    DATABASE_URL: "Host=postgres;Port=5432;Database=kinetix_order_dev;Username=ci;Password=ci-ephemeral-not-a-deployed-credential"
+  script:
+    - dotnet restore --locked-mode
+    - |
+      PLUGIN="$(find /root/.nuget/packages/grpc.tools -name grpc_csharp_plugin \
+        \( -path '*linux_x64*' -o -path '*linux_arm64*' \) | head -1)"
+      dotnet build -c Release --no-restore \
+        -p:Protobuf_ProtocFullPath=/usr/bin/protoc \
+        -p:gRPC_PluginFullPath="$PLUGIN"
+    - dotnet run -c Release --no-build -- --migrate
+    # A second run must apply nothing. If it does, the migrations are not idempotent.
+    - dotnet run -c Release --no-build -- --migrate | grep -q 'schema is up to date'
+    # Nothing may create tables outside a migration. EnsureCreated leaves no history row, so
+    # the count is the assertion.
+    - |
+      applied=$(PGPASSWORD=ci-ephemeral-not-a-deployed-credential \
+        psql -h postgres -U ci -d kinetix_order_dev -tAc 'select count(*) from "__EFMigrationsHistory"' | tr -d ' ')
+      test "$applied" -ge 1 || { echo "__EFMigrationsHistory is empty: the schema did not come from migrations"; exit 1; }
+      echo "$applied migration(s) recorded"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
