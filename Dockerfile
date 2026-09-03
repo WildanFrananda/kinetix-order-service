@@ -21,6 +21,13 @@ RUN PLUGIN="$(find /root/.nuget/packages/grpc.tools -name grpc_csharp_plugin -pa
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview@sha256:ed557d471a2b702b72fd1fd4835040bbbdfbd2532ae78cfc90546773d88a91d7 AS final
 
+# curl is here for the compose healthcheck, which probes /health/ready over HTTP. Without it
+# this image has no way to make an HTTP request at all, and the container could only be
+# checked by "is the process alive".
+RUN apt-get update && apt-get install --no-install-recommends -y curl \
+    && rm -rf /var/lib/apt/lists/*
+
+
 WORKDIR /app
 COPY --from=build /app/publish .
 
