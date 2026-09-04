@@ -37,4 +37,8 @@ EXPOSE 8001 50055
 
 USER app
 
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8001/health/ready > /dev/null || exit 1
+
 ENTRYPOINT ["dotnet", "Kinetix.OrderService.dll"]
