@@ -32,6 +32,32 @@ public sealed class PeerAuthorizationInterceptor : Interceptor {
         return await continuation(request, context);
     }
 
+    public override async Task<TResponse> ClientStreamingServerHandler<TRequest, TResponse>(
+        IAsyncStreamReader<TRequest> requestStream,
+        ServerCallContext context,
+        ClientStreamingServerMethod<TRequest, TResponse> continuation) {
+        Authorize(context);
+        return await continuation(requestStream, context);
+    }
+
+    public override async Task ServerStreamingServerHandler<TRequest, TResponse>(
+        TRequest request,
+        IServerStreamWriter<TResponse> responseStream,
+        ServerCallContext context,
+        ServerStreamingServerMethod<TRequest, TResponse> continuation) {
+        Authorize(context);
+        await continuation(request, responseStream, context);
+    }
+
+    public override async Task DuplexStreamingServerHandler<TRequest, TResponse>(
+        IAsyncStreamReader<TRequest> requestStream,
+        IServerStreamWriter<TResponse> responseStream,
+        ServerCallContext context,
+        DuplexStreamingServerMethod<TRequest, TResponse> continuation) {
+        Authorize(context);
+        await continuation(requestStream, responseStream, context);
+    }
+
     private void Authorize(ServerCallContext context) {
         var http = context.GetHttpContext();
         X509Certificate2? peer = http.Connection.ClientCertificate ?? throw new RpcException(new Status(
