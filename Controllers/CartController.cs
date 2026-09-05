@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Kinetix.OrderService.Application.Services;
 using Kinetix.OrderService.DTOs;
@@ -5,13 +6,14 @@ using Kinetix.OrderService.DTOs;
 namespace Kinetix.OrderService.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/v1/cart")]
 public class CartController(ICartService cartService) : ControllerBase {
     private readonly ICartService _cartService = cartService;
 
     private bool TryGetCustomerId(out long customerId) {
-        var customerIdHeader = Request.Headers["X-User-Id"].FirstOrDefault();
-        if (long.TryParse(customerIdHeader, out customerId) && customerId > 0) {
+        var claim = User.FindFirst("uid")?.Value;
+        if (long.TryParse(claim, out customerId) && customerId > 0) {
             return true;
         }
         customerId = 0;
@@ -21,7 +23,7 @@ public class CartController(ICartService cartService) : ControllerBase {
     [HttpGet]
     public async Task<IActionResult> GetCart() {
         if (!TryGetCustomerId(out var customerId)) {
-            return Unauthorized(new { error = "UNAUTHORIZED", message = "X-User-Id header is required" });
+            return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
         var cart = await _cartService.GetCartAsync(customerId);
         return Ok(cart);
@@ -30,7 +32,7 @@ public class CartController(ICartService cartService) : ControllerBase {
     [HttpPost("items")]
     public async Task<IActionResult> AddItem([FromBody] AddCartItemRequest request) {
         if (!TryGetCustomerId(out var customerId)) {
-            return Unauthorized(new { error = "UNAUTHORIZED", message = "X-User-Id header is required" });
+            return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
         var cart = await _cartService.AddItemAsync(customerId, request);
         return Ok(cart);
@@ -39,7 +41,7 @@ public class CartController(ICartService cartService) : ControllerBase {
     [HttpPut("items/{productId}")]
     public async Task<IActionResult> UpdateItemQuantity(string productId, [FromBody] UpdateCartItemRequest request) {
         if (!TryGetCustomerId(out var customerId)) {
-            return Unauthorized(new { error = "UNAUTHORIZED", message = "X-User-Id header is required" });
+            return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
         var cart = await _cartService.UpdateItemQuantityAsync(customerId, productId, request.Quantity);
         return Ok(cart);
@@ -48,7 +50,7 @@ public class CartController(ICartService cartService) : ControllerBase {
     [HttpDelete("items/{productId}")]
     public async Task<IActionResult> RemoveItem(string productId) {
         if (!TryGetCustomerId(out var customerId)) {
-            return Unauthorized(new { error = "UNAUTHORIZED", message = "X-User-Id header is required" });
+            return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
         var cart = await _cartService.RemoveItemAsync(customerId, productId);
         return Ok(cart);
@@ -57,7 +59,7 @@ public class CartController(ICartService cartService) : ControllerBase {
     [HttpPost("voucher")]
     public async Task<IActionResult> ApplyVoucher([FromBody] ApplyCartVoucherRequest request) {
         if (!TryGetCustomerId(out var customerId)) {
-            return Unauthorized(new { error = "UNAUTHORIZED", message = "X-User-Id header is required" });
+            return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
         var cart = await _cartService.ApplyVoucherAsync(customerId, request.VoucherCode);
         return Ok(cart);
@@ -66,7 +68,7 @@ public class CartController(ICartService cartService) : ControllerBase {
     [HttpDelete]
     public async Task<IActionResult> ClearCart() {
         if (!TryGetCustomerId(out var customerId)) {
-            return Unauthorized(new { error = "UNAUTHORIZED", message = "X-User-Id header is required" });
+            return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
         await _cartService.ClearCartAsync(customerId);
         return NoContent();

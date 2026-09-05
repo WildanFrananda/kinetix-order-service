@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Kinetix.OrderService.Application.Services;
 using Kinetix.OrderService.Domain.Enums;
@@ -6,13 +7,14 @@ using Kinetix.OrderService.DTOs;
 namespace Kinetix.OrderService.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/v1/orders")]
 public class OrderController(IOrderService orderService) : ControllerBase {
     private readonly IOrderService _orderService = orderService;
 
     private bool TryGetCustomerId(out long customerId) {
-        var customerIdHeader = Request.Headers["X-User-Id"].FirstOrDefault();
-        if (long.TryParse(customerIdHeader, out customerId) && customerId > 0) {
+        var claim = User.FindFirst("uid")?.Value;
+        if (long.TryParse(claim, out customerId) && customerId > 0) {
             return true;
         }
         customerId = 0;
@@ -22,7 +24,7 @@ public class OrderController(IOrderService orderService) : ControllerBase {
     [HttpPost("checkout")]
     public async Task<IActionResult> Checkout([FromBody] CheckoutRequest request) {
         if (!TryGetCustomerId(out var customerId)) {
-            return Unauthorized(new { error = "UNAUTHORIZED", message = "X-User-Id header is required" });
+            return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
 
         var idempotencyKey = Request.Headers["Idempotency-Key"].FirstOrDefault();
@@ -38,7 +40,7 @@ public class OrderController(IOrderService orderService) : ControllerBase {
     [HttpGet("my-orders")]
     public async Task<IActionResult> GetMyOrders([FromQuery] string? status, [FromQuery] int page = 1, [FromQuery] int pageSize = 10) {
         if (!TryGetCustomerId(out var customerId)) {
-            return Unauthorized(new { error = "UNAUTHORIZED", message = "X-User-Id header is required" });
+            return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
 
         OrderStatus? parsedStatus = null;
