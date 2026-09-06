@@ -6,6 +6,7 @@ using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.DTOs;
 using Kinetix.OrderService.Infrastructure.Persistence;
+using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
 
 namespace Kinetix.OrderService.Tests;
 
@@ -24,8 +25,8 @@ public class OrderServiceTests {
         var mockCartService = new Mock<ICartService>();
         var mockPricingClient = new Mock<IPricingClient>();
 
-        long customerId = 1001;
-        var cart = new CustomerCart(customerId);
+        string customerPrincipalId = "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7";
+        var cart = new CustomerCart(customerPrincipalId);
         cart.Items.Add(new CartItem {
             ProductId = "PRODUCT-01",
             ProductTitle = "Sample Product",
@@ -33,7 +34,7 @@ public class OrderServiceTests {
             Quantity = 2
         });
 
-        mockCartService.Setup(s => s.GetCartAsync(customerId))
+        mockCartService.Setup(s => s.GetCartAsync(customerPrincipalId))
             .ReturnsAsync(cart);
 
         mockPricingClient.Setup(p => p.CalculatePriceAsync("DISCOUNT10", 200000m, 15000m))
@@ -43,7 +44,7 @@ public class OrderServiceTests {
         var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "DISCOUNT10", "KINETIX_INSTANT", 15000m, 5.2);
 
         // Act
-        var result = await orderService.CheckoutAsync(customerId, request, "IDEMP-KEY-12345");
+        var result = await orderService.CheckoutAsync(customerPrincipalId, request, "IDEMP-KEY-12345");
 
         // Assert
         Assert.NotNull(result);
@@ -56,7 +57,7 @@ public class OrderServiceTests {
         Assert.Equal("KINETIX_INSTANT", result.ShippingServiceTier);
         Assert.Equal(5.2, result.DistanceKm);
 
-        mockCartService.Verify(s => s.ClearCartAsync(customerId), Times.Once);
+        mockCartService.Verify(s => s.ClearCartAsync(customerPrincipalId), Times.Once);
         mockPricingClient.Verify(p => p.CalculatePriceAsync("DISCOUNT10", 200000m, 15000m), Times.Once);
     }
 
@@ -67,9 +68,9 @@ public class OrderServiceTests {
         var mockCartService = new Mock<ICartService>();
         var mockPricingClient = new Mock<IPricingClient>();
 
-        var order = new Order {
+        var order = new OrderEntity {
             OrderNumber = "ORD-20260815-001",
-            CustomerId = 1001,
+            CustomerPrincipalId = "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7",
             Status = OrderStatus.PENDING_PAYMENT,
             Subtotal = 100000m,
             FinalTotal = 100000m,
@@ -94,9 +95,9 @@ public class OrderServiceTests {
         var mockCartService = new Mock<ICartService>();
         var mockPricingClient = new Mock<IPricingClient>();
 
-        var order = new Order {
+        var order = new OrderEntity {
             OrderNumber = "ORD-20260815-002",
-            CustomerId = 1001,
+            CustomerPrincipalId = "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7",
             Status = OrderStatus.PENDING_PAYMENT,
             Subtotal = 100000m,
             FinalTotal = 100000m,

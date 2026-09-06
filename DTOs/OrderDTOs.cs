@@ -12,7 +12,6 @@ public record OrderItemResponse(
 public record OrderResponse(
     Guid Id,
     string OrderNumber,
-    long CustomerId,
     string CustomerPrincipalId,
     string Status,
     decimal Subtotal,

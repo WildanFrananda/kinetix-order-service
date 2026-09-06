@@ -1,7 +1,7 @@
 namespace Kinetix.OrderService.Domain.Entities;
 
 public class CustomerCart {
-    public long CustomerId { get; set; }
+    public string CustomerPrincipalId { get; set; } = string.Empty;
     public List<CartItem> Items { get; set; } = [];
     public string? AppliedVoucherCode { get; set; }
     public decimal Subtotal => Items.Sum(i => i.LineTotal);
@@ -9,7 +9,7 @@ public class CustomerCart {
 
     public CustomerCart() { }
 
-    public CustomerCart(long customerId) {
-        CustomerId = customerId;
+    public CustomerCart(string customerPrincipalId) {
+        CustomerPrincipalId = customerPrincipalId;
     }
 }

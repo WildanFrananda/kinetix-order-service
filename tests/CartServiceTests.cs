@@ -19,14 +19,14 @@ public class CartServiceTests {
     [Fact]
     public async Task AddItemAsync_AddsNewItemToCart() {
         // Arrange
-        long customerId = 1001;
+        string customerPrincipalId = "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7";
         _mockCache.Setup(c => c.GetAsync(It.IsAny<string>(), CancellationToken.None))
             .ReturnsAsync((byte[]?)null);
 
         var request = new AddCartItemRequest("TSHIRT-BLK-M", "Kinetix Premium Shirt", 150000m, 2, "apparel");
 
         // Act
-        var result = await _cartService.AddItemAsync(customerId, request);
+        var result = await _cartService.AddItemAsync(customerPrincipalId, request);
 
         // Assert
         Assert.Single(result.Items);
@@ -38,8 +38,8 @@ public class CartServiceTests {
     [Fact]
     public async Task RemoveItemAsync_RemovesItemFromCart() {
         // Arrange
-        long customerId = 1001;
-        var existingCart = new Domain.Entities.CustomerCart(customerId);
+        string customerPrincipalId = "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7";
+        var existingCart = new Domain.Entities.CustomerCart(customerPrincipalId);
         existingCart.Items.Add(new Domain.Entities.CartItem {
             ProductId = "SHOES-RUN-42",
             ProductTitle = "Kinetix Running Shoes",
@@ -52,7 +52,7 @@ public class CartServiceTests {
             .ReturnsAsync(json);
 
         // Act
-        var result = await _cartService.RemoveItemAsync(customerId, "SHOES-RUN-42");
+        var result = await _cartService.RemoveItemAsync(customerPrincipalId, "SHOES-RUN-42");
 
         // Assert
         Assert.Empty(result.Items);

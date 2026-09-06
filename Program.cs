@@ -35,6 +35,8 @@ if (args.Contains("--migrate")) {
         Console.WriteLine($"applying {name}");
     }
 
+    await Kinetix.OrderService.Infrastructure.Migration.PrincipalBackfill.RunAsync(connectionString);
+
     await migrateContext.Database.MigrateAsync();
     Console.WriteLine($"applied {pending.Count} migration(s)");
     return 0;

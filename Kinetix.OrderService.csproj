@@ -19,6 +19,7 @@
     <Protobuf Include=".contracts/proto/pricing/v1/pricing.proto" ProtoRoot=".contracts/proto" GrpcServices="Client" />
     <Protobuf Include=".contracts/proto/shipping/v1/shipping.proto" ProtoRoot=".contracts/proto" GrpcServices="Client" />
     <Protobuf Include=".contracts/proto/payment/v1/payment.proto" ProtoRoot=".contracts/proto" GrpcServices="Client" />
+    <Protobuf Include=".contracts/proto/identity/v1/identity.proto" ProtoRoot=".contracts/proto" GrpcServices="Client" />
     <Protobuf Include=".contracts/proto/order/v1/order.proto" ProtoRoot=".contracts/proto" GrpcServices="Server" />
     <Protobuf Include=".contracts/proto/common/v1/common.proto" ProtoRoot=".contracts/proto" GrpcServices="None" />
   </ItemGroup>

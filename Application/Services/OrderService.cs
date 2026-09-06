@@ -12,7 +12,7 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
     private readonly ICartService _cartService = cartService;
     private readonly IPricingClient _pricingClient = pricingClient;
 
-    public async Task<OrderResponse> CheckoutAsync(long customerId, string customerPrincipalId, CheckoutRequest request, string? idempotencyKey) {
+    public async Task<OrderResponse> CheckoutAsync(string customerPrincipalId, CheckoutRequest request, string? idempotencyKey) {
         if (!string.IsNullOrEmpty(idempotencyKey)) {
             var existingOrder = await _dbContext.Orders
                 .Include(o => o.Items)
@@ -23,7 +23,7 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
             }
         }
 
-        var cart = await _cartService.GetCartAsync(customerId);
+        var cart = await _cartService.GetCartAsync(customerPrincipalId);
         if (cart.Items.Count == 0) {
             throw new InvalidOperationException("Cannot checkout an empty shopping cart");
         }
@@ -40,7 +40,6 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
 
         var order = new OrderEntity {
             OrderNumber = orderNumber,
-            CustomerId = customerId,
             CustomerPrincipalId = customerPrincipalId,
             Status = OrderStatus.PENDING_PAYMENT,
             Subtotal = priceResult.Subtotal,
@@ -68,7 +67,7 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
         _dbContext.Orders.Add(order);
         await _dbContext.SaveChangesAsync();
 
-        await _cartService.ClearCartAsync(customerId);
+        await _cartService.ClearCartAsync(customerPrincipalId);
 
         return MapToOrderResponse(order);
     }
@@ -81,10 +80,10 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
         return order == null ? null : MapToOrderResponse(order);
     }
 
-    public async Task<List<OrderResponse>> GetCustomerOrdersAsync(long customerId, OrderStatus? status, int page, int pageSize) {
+    public async Task<List<OrderResponse>> GetCustomerOrdersAsync(string customerPrincipalId, OrderStatus? status, int page, int pageSize) {
         var query = _dbContext.Orders
             .Include(o => o.Items)
-            .Where(o => o.CustomerId == customerId);
+            .Where(o => o.CustomerPrincipalId == customerPrincipalId);
 
         if (status.HasValue) {
             query = query.Where(o => o.Status == status.Value);
@@ -138,7 +137,6 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
     private static OrderResponse MapToOrderResponse(OrderEntity order) => new(
         order.Id,
         order.OrderNumber,
-        order.CustomerId,
         order.CustomerPrincipalId,
         order.Status.ToString(),
         order.Subtotal,

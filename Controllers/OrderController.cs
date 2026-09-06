@@ -12,31 +12,24 @@ namespace Kinetix.OrderService.Controllers;
 public class OrderController(IOrderService orderService) : ControllerBase {
     private readonly IOrderService _orderService = orderService;
 
-    private bool TryGetCustomerId(out long customerId) {
-        var claim = User.FindFirst("uid")?.Value;
-        if (long.TryParse(claim, out customerId) && customerId > 0) {
-            return true;
-        }
-        customerId = 0;
-        return false;
-    }
-
-    private string CallerPrincipalId() {
-        return User.FindFirst("sub")?.Value
+    private bool TryGetCallerPrincipal(out string customerPrincipalId) {
+        customerPrincipalId = User.FindFirst("sub")?.Value
             ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
             ?? string.Empty;
+        return !string.IsNullOrWhiteSpace(customerPrincipalId);
     }
+
 
     [HttpPost("checkout")]
     public async Task<IActionResult> Checkout([FromBody] CheckoutRequest request) {
-        if (!TryGetCustomerId(out var customerId)) {
+        if (!TryGetCallerPrincipal(out var customerPrincipalId)) {
             return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
 
         var idempotencyKey = Request.Headers["Idempotency-Key"].FirstOrDefault();
 
         try {
-            var order = await _orderService.CheckoutAsync(customerId, CallerPrincipalId(), request, idempotencyKey);
+            var order = await _orderService.CheckoutAsync(customerPrincipalId, request, idempotencyKey);
             return CreatedAtAction(nameof(GetOrderById), new { orderId = order.Id }, order);
         } catch (InvalidOperationException ex) {
             return BadRequest(new { error = "CHECKOUT_FAILED", message = ex.Message });
@@ -45,7 +38,7 @@ public class OrderController(IOrderService orderService) : ControllerBase {
 
     [HttpGet("my-orders")]
     public async Task<IActionResult> GetMyOrders([FromQuery] string? status, [FromQuery] int page = 1, [FromQuery] int pageSize = 10) {
-        if (!TryGetCustomerId(out var customerId)) {
+        if (!TryGetCallerPrincipal(out var customerPrincipalId)) {
             return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
 
@@ -54,7 +47,7 @@ public class OrderController(IOrderService orderService) : ControllerBase {
             parsedStatus = resultStatus;
         }
 
-        var orders = await _orderService.GetCustomerOrdersAsync(customerId, parsedStatus, page, pageSize);
+        var orders = await _orderService.GetCustomerOrdersAsync(customerPrincipalId, parsedStatus, page, pageSize);
         return Ok(orders);
     }
 

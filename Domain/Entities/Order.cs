@@ -16,9 +16,7 @@ public class Order {
     public string OrderNumber { get; set; } = string.Empty;
 
     [Required]
-    [Column("customer_id")]
-    public long CustomerId { get; set; }
-
+    [Column("customer_principal_id")]
     public string CustomerPrincipalId { get; set; } = string.Empty;
 
     [Required]

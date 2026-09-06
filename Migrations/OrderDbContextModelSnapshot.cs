@@ -42,13 +42,10 @@ namespace Kinetix.OrderService.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<long>("CustomerId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("customer_id");
-
                     b.Property<string>("CustomerPrincipalId")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasColumnType("text")
+                        .HasColumnName("customer_principal_id");
 
                     b.Property<decimal>("DiscountAmount")
                         .HasColumnType("decimal(18,2)")
@@ -109,7 +106,7 @@ namespace Kinetix.OrderService.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CustomerId");
+                    b.HasIndex("CustomerPrincipalId");
 
                     b.HasIndex("IdempotencyKey")
                         .IsUnique();

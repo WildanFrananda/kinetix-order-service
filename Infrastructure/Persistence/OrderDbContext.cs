@@ -14,7 +14,7 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
 
         modelBuilder.Entity<OrderEntity>(entity => {
             entity.HasIndex(e => e.OrderNumber).IsUnique();
-            entity.HasIndex(e => e.CustomerId);
+            entity.HasIndex(e => e.CustomerPrincipalId);
             entity.HasIndex(e => e.IdempotencyKey).IsUnique();
 
             entity.Property(e => e.Status)
