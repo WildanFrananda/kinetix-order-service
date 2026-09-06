@@ -1,4 +1,11 @@
-bin/
+# .NET build output, named down to the two output directories rather than all of bin/.
+#
+# The blanket rule swallowed bin/sync-contracts — the script the comment below names, and the one
+# that fetches the contracts this project's .csproj compiles against. `git add` reported success
+# and staged nothing, so a fresh clone had no way to produce .contracts/ and the build failed at
+# a <Protobuf Include=".contracts/proto/..."> that pointed at a directory nothing creates.
+**/bin/Debug/
+**/bin/Release/
 obj/
 .vscode/
 .idea/
