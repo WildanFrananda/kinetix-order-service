@@ -13,6 +13,7 @@ public record OrderResponse(
     Guid Id,
     string OrderNumber,
     long CustomerId,
+    string CustomerPrincipalId,
     string Status,
     decimal Subtotal,
     decimal DiscountAmount,

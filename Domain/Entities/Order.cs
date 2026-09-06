@@ -19,6 +19,8 @@ public class Order {
     [Column("customer_id")]
     public long CustomerId { get; set; }
 
+    public string CustomerPrincipalId { get; set; } = string.Empty;
+
     [Required]
     [Column("status")]
     public OrderStatus Status { get; set; } = OrderStatus.PENDING_PAYMENT;

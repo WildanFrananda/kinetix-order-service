@@ -1,10 +1,15 @@
-using System.Globalization;
-using Kinetix.OrderService.Grpc.Pricing;
+using Common.V1;
+using Pricing.V1;
 
 namespace Kinetix.OrderService.Application.Services;
 
-public class PricingGrpcClient(PricingService.PricingServiceClient client) : IPricingClient {
+public class PricingGrpcClient(
+    PricingService.PricingServiceClient client,
+    ILogger<PricingGrpcClient> logger) : IPricingClient {
     private readonly PricingService.PricingServiceClient _client = client;
+    private readonly ILogger<PricingGrpcClient> _logger = logger;
+
+    private const long MinorPerMajor = 100L;
 
     public async Task<PriceCalculationResult> CalculatePriceAsync(string? voucherCode, decimal subtotal, decimal baseShippingFee) {
         if (subtotal <= 0m && baseShippingFee <= 0m) {
@@ -14,35 +19,43 @@ public class PricingGrpcClient(PricingService.PricingServiceClient client) : IPr
         try {
             var request = new CalculatePriceRequest {
                 VoucherCode = voucherCode ?? string.Empty,
-                BaseShippingFee = baseShippingFee.ToString("F2", CultureInfo.InvariantCulture)
+                BaseShippingFee = ToMoney(baseShippingFee)
             };
 
             request.Items.Add(new PriceItemRequest {
                 ProductId = "CART-ITEM",
-                BasePrice = subtotal.ToString("F2", CultureInfo.InvariantCulture),
+                BasePrice = ToMoney(subtotal),
                 Quantity = 1
             });
 
             var response = await _client.CalculatePriceAsync(request);
 
-            _ = decimal.TryParse(response.Subtotal, CultureInfo.InvariantCulture, out var respSubtotal);
-            _ = decimal.TryParse(response.VoucherDiscount, CultureInfo.InvariantCulture, out var voucherDiscount);
-            _ = decimal.TryParse(response.BaseShippingFee, CultureInfo.InvariantCulture, out var respBaseShipping);
-            _ = decimal.TryParse(response.ShippingDiscount, CultureInfo.InvariantCulture, out var shippingDiscount);
-            _ = decimal.TryParse(response.FinalShippingFee, CultureInfo.InvariantCulture, out var finalShippingFee);
-            _ = decimal.TryParse(response.FinalTotal, CultureInfo.InvariantCulture, out var finalTotal);
-
             return new PriceCalculationResult(
-                respSubtotal > 0m ? respSubtotal : subtotal,
-                Math.Max(0m, voucherDiscount),
-                respBaseShipping > 0m ? respBaseShipping : baseShippingFee,
-                Math.Max(0m, shippingDiscount),
-                Math.Max(0m, finalShippingFee),
-                finalTotal > 0m ? finalTotal : Math.Max(0m, subtotal - voucherDiscount + finalShippingFee)
+                FromMoney(response.Subtotal),
+                FromMoney(response.VoucherDiscount),
+                FromMoney(response.BaseShippingFee),
+                FromMoney(response.ShippingDiscount),
+                FromMoney(response.FinalShippingFee),
+                FromMoney(response.FinalTotal)
             );
-        } catch {
+        } catch (Exception ex) {
+            _logger.LogError(
+                ex, "pricing did not answer; this order is priced from the cart alone, so any "
+                  + "voucher or discount the customer expected is NOT applied");
+
             var finalFee = Math.Max(0m, baseShippingFee);
             return new PriceCalculationResult(subtotal, 0m, baseShippingFee, 0m, finalFee, subtotal + finalFee);
         }
+    }
+
+    private static Money ToMoney(decimal amount) {
+        return new Money {
+            AmountMinor = (long)Math.Round(amount * MinorPerMajor, MidpointRounding.AwayFromZero),
+            Currency = "IDR"
+        };
+    }
+
+    private static decimal FromMoney(Money? money) {
+        return money == null ? 0m : (decimal)money.AmountMinor / MinorPerMajor;
     }
 }

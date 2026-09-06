@@ -7,7 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using Kinetix.OrderService.Security;
 using Microsoft.EntityFrameworkCore;
 using Kinetix.OrderService.Application.Services;
-using Kinetix.OrderService.Grpc.Pricing;
+using Pricing.V1;
 using Kinetix.OrderService.Infrastructure.Persistence;
 
 EnvLoader.Load();
@@ -94,7 +94,7 @@ builder.WebHost.ConfigureKestrel(options => {
 
 var matchingGrpcUrl = builder.Configuration["MATCHING_GRPC_URL"] ?? "http://kinetix-matching-service:50053";
 
-builder.Services.AddGrpcClient<Kinetix.OrderService.Grpc.Shipping.ShippingService.ShippingServiceClient>(options => {
+builder.Services.AddGrpcClient<Shipping.V1.ShippingService.ShippingServiceClient>(options => {
     options.Address = AsMesh(matchingGrpcUrl);
 }).ConfigurePrimaryHttpMessageHandler(MeshHandler);
 
@@ -141,8 +141,25 @@ var app = builder.Build();
 
 {
     var jwks = app.Services.GetRequiredService<JwksKeyProvider>();
-    var loaded = await jwks.RefreshAsync();
-    app.Logger.LogInformation("loaded {Count} signing key(s) from identity's JWKS", loaded);
+    const int attempts = 5;
+    for (var attempt = 1; attempt <= attempts; attempt++) {
+        try {
+            var loaded = await jwks.RefreshAsync();
+            app.Logger.LogInformation("loaded {Count} signing key(s) from identity's JWKS", loaded);
+            break;
+        } catch (Exception ex) when (attempt < attempts) {
+            var delay = TimeSpan.FromSeconds(attempt * 2);
+            app.Logger.LogWarning(
+                "identity's JWKS is not answering yet ({Message}); retrying in {Delay}s ({Attempt}/{Attempts})",
+                ex.Message, delay.TotalSeconds, attempt, attempts);
+            await Task.Delay(delay);
+        } catch (Exception ex) {
+            app.Logger.LogError(
+                ex, "identity's JWKS did not answer in {Attempts} attempts; starting without keys, "
+                  + "which means the first authenticated request will fetch them", attempts);
+        }
+    }
+
     app.Logger.LogInformation("gRPC listening on {Port} (mTLS)", grpcPort);
 }
 

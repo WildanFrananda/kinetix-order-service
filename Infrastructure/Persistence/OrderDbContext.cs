@@ -1,17 +1,18 @@
 using Microsoft.EntityFrameworkCore;
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
+using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
 
 namespace Kinetix.OrderService.Infrastructure.Persistence;
 
 public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContext(options) {
-    public DbSet<Order> Orders => Set<Order>();
+    public DbSet<OrderEntity> Orders => Set<OrderEntity>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) {
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.Entity<Order>(entity => {
+        modelBuilder.Entity<OrderEntity>(entity => {
             entity.HasIndex(e => e.OrderNumber).IsUnique();
             entity.HasIndex(e => e.CustomerId);
             entity.HasIndex(e => e.IdempotencyKey).IsUnique();

@@ -13,10 +13,14 @@
 </PropertyGroup>
 
   <ItemGroup>
-    <Protobuf Include="Protos\pricing_service.proto" GrpcServices="Client" />
-    <Protobuf Include="Protos\shipping_service.proto" GrpcServices="Client" />
-    <Protobuf Include="Protos\payment_service.proto" GrpcServices="Client" />
-    <Protobuf Include="Protos\order_service.proto" GrpcServices="Server" />
+    <!-- The wire contracts, fetched by bin/sync-contracts at a pinned commit. Not committed
+         here: this repository tracks no .proto at all, which is what S9 measures.
+         ProtoRoot is set so cross-package imports (common/v1/common.proto) resolve. -->
+    <Protobuf Include=".contracts/proto/pricing/v1/pricing.proto" ProtoRoot=".contracts/proto" GrpcServices="Client" />
+    <Protobuf Include=".contracts/proto/shipping/v1/shipping.proto" ProtoRoot=".contracts/proto" GrpcServices="Client" />
+    <Protobuf Include=".contracts/proto/payment/v1/payment.proto" ProtoRoot=".contracts/proto" GrpcServices="Client" />
+    <Protobuf Include=".contracts/proto/order/v1/order.proto" ProtoRoot=".contracts/proto" GrpcServices="Server" />
+    <Protobuf Include=".contracts/proto/common/v1/common.proto" ProtoRoot=".contracts/proto" GrpcServices="None" />
   </ItemGroup>
 
   <ItemGroup>

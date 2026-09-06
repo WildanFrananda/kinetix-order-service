@@ -21,6 +21,12 @@ public class OrderController(IOrderService orderService) : ControllerBase {
         return false;
     }
 
+    private string CallerPrincipalId() {
+        return User.FindFirst("sub")?.Value
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? string.Empty;
+    }
+
     [HttpPost("checkout")]
     public async Task<IActionResult> Checkout([FromBody] CheckoutRequest request) {
         if (!TryGetCustomerId(out var customerId)) {
@@ -30,7 +36,7 @@ public class OrderController(IOrderService orderService) : ControllerBase {
         var idempotencyKey = Request.Headers["Idempotency-Key"].FirstOrDefault();
 
         try {
-            var order = await _orderService.CheckoutAsync(customerId, request, idempotencyKey);
+            var order = await _orderService.CheckoutAsync(customerId, CallerPrincipalId(), request, idempotencyKey);
             return CreatedAtAction(nameof(GetOrderById), new { orderId = order.Id }, order);
         } catch (InvalidOperationException ex) {
             return BadRequest(new { error = "CHECKOUT_FAILED", message = ex.Message });

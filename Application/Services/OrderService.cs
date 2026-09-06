@@ -3,6 +3,7 @@ using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.DTOs;
 using Kinetix.OrderService.Infrastructure.Persistence;
+using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
 
 namespace Kinetix.OrderService.Application.Services;
 
@@ -11,7 +12,7 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
     private readonly ICartService _cartService = cartService;
     private readonly IPricingClient _pricingClient = pricingClient;
 
-    public async Task<OrderResponse> CheckoutAsync(long customerId, CheckoutRequest request, string? idempotencyKey) {
+    public async Task<OrderResponse> CheckoutAsync(long customerId, string customerPrincipalId, CheckoutRequest request, string? idempotencyKey) {
         if (!string.IsNullOrEmpty(idempotencyKey)) {
             var existingOrder = await _dbContext.Orders
                 .Include(o => o.Items)
@@ -37,9 +38,10 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
         string orderNumber = $"ORD-{DateTime.UtcNow:yyyyMMdd}-{uniqueSuffix}";
         string serviceTier = request.ShippingServiceTier ?? "KINETIX_REGULAR";
 
-        var order = new Order {
+        var order = new OrderEntity {
             OrderNumber = orderNumber,
             CustomerId = customerId,
+            CustomerPrincipalId = customerPrincipalId,
             Status = OrderStatus.PENDING_PAYMENT,
             Subtotal = priceResult.Subtotal,
             DiscountAmount = priceResult.VoucherDiscount,
@@ -101,7 +103,7 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
         var order = await _dbContext.Orders
             .Include(o => o.Items)
             .FirstOrDefaultAsync(o => o.Id == orderId)
-            ?? throw new KeyNotFoundException($"Order '{orderId}' not found");
+            ?? throw new KeyNotFoundException($"OrderEntity '{orderId}' not found");
 
         ValidateStateTransition(order.Status, newStatus);
 
@@ -133,10 +135,11 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
         }
     }
 
-    private static OrderResponse MapToOrderResponse(Order order) => new(
+    private static OrderResponse MapToOrderResponse(OrderEntity order) => new(
         order.Id,
         order.OrderNumber,
         order.CustomerId,
+        order.CustomerPrincipalId,
         order.Status.ToString(),
         order.Subtotal,
         order.DiscountAmount,

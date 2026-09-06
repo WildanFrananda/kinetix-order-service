@@ -8,10 +8,13 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Kinetix.OrderService.Migrations {
+namespace Kinetix.OrderService.Migrations
+{
     [DbContext(typeof(OrderDbContext))]
-    partial class OrderDbContextModelSnapshot : ModelSnapshot {
-        protected override void BuildModel(ModelBuilder modelBuilder) {
+    partial class OrderDbContextModelSnapshot : ModelSnapshot
+    {
+        protected override void BuildModel(ModelBuilder modelBuilder)
+        {
 #pragma warning disable 612, 618
             modelBuilder
                 .HasAnnotation("ProductVersion", "10.0.0-rc.2.25502.107")
@@ -19,7 +22,8 @@ namespace Kinetix.OrderService.Migrations {
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.Order", b => {
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.Order", b =>
+                {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
@@ -41,6 +45,10 @@ namespace Kinetix.OrderService.Migrations {
                     b.Property<long>("CustomerId")
                         .HasColumnType("bigint")
                         .HasColumnName("customer_id");
+
+                    b.Property<string>("CustomerPrincipalId")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<decimal>("DiscountAmount")
                         .HasColumnType("decimal(18,2)")
@@ -112,7 +120,8 @@ namespace Kinetix.OrderService.Migrations {
                     b.ToTable("orders");
                 });
 
-            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.OrderItem", b => {
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.OrderItem", b =>
+                {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
@@ -153,7 +162,8 @@ namespace Kinetix.OrderService.Migrations {
                     b.ToTable("order_items");
                 });
 
-            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.OrderItem", b => {
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.OrderItem", b =>
+                {
                     b.HasOne("Kinetix.OrderService.Domain.Entities.Order", "Order")
                         .WithMany("Items")
                         .HasForeignKey("OrderId")
@@ -163,7 +173,8 @@ namespace Kinetix.OrderService.Migrations {
                     b.Navigation("Order");
                 });
 
-            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.Order", b => {
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.Order", b =>
+                {
                     b.Navigation("Items");
                 });
 #pragma warning restore 612, 618

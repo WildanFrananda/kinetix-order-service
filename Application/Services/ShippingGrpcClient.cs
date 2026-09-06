@@ -1,4 +1,5 @@
-using Kinetix.OrderService.Grpc.Shipping;
+using Common.V1;
+using Shipping.V1;
 
 namespace Kinetix.OrderService.Application.Services;
 
@@ -8,10 +9,10 @@ public class ShippingGrpcClient(ShippingService.ShippingServiceClient client) : 
     public async Task<EstimateShippingResult> EstimateShippingOptionsAsync(double originLat, double originLng, double destLat, double destLng, double totalWeightKg, long? merchantId = null) {
         try {
             var request = new EstimateShippingOptionsRequest {
-                Origin = new LocationCoordinates { Latitude = originLat, Longitude = originLng },
-                Destination = new LocationCoordinates { Latitude = destLat, Longitude = destLng },
-                TotalWeightKg = totalWeightKg,
-                MerchantId = merchantId ?? 0
+                Origin = new GeoPoint { Latitude = originLat, Longitude = originLng },
+                Destination = new GeoPoint { Latitude = destLat, Longitude = destLng },
+                TotalWeightGrams = (long)Math.Round(totalWeightKg * 1000.0),
+                MerchantPrincipalId = string.Empty
             };
 
             var response = await _client.EstimateShippingOptionsAsync(request);
@@ -20,7 +21,7 @@ public class ShippingGrpcClient(ShippingService.ShippingServiceClient client) : 
                 opt.ServiceTier,
                 opt.ServiceName,
                 opt.DistanceKm,
-                (decimal)opt.BaseShippingFee,
+                opt.BaseShippingFee == null ? 0m : (decimal)opt.BaseShippingFee.AmountMinor / 100m,
                 opt.EstimatedDeliveryTime,
                 opt.IsAvailable,
                 opt.UnavailableReason

@@ -4,3 +4,6 @@ obj/
 .idea/
 .env
 !.env.example
+
+# Wire contracts, fetched by bin/sync-contracts at a pinned commit. Never committed.
+/.contracts/
