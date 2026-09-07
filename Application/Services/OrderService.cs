@@ -114,7 +114,7 @@ public class OrderService(
         return order == null ? null : MapToOrderResponse(order);
     }
 
-    public async Task<List<OrderResponse>> GetCustomerOrdersAsync(string customerPrincipalId, OrderStatus? status, int page, int pageSize) {
+    public async Task<CustomerOrderPage> GetCustomerOrdersAsync(string customerPrincipalId, OrderStatus? status, int page, int pageSize) {
         var query = _dbContext.Orders
             .Include(o => o.Items)
             .Where(o => o.CustomerPrincipalId == customerPrincipalId);
@@ -123,13 +123,15 @@ public class OrderService(
             query = query.Where(o => o.Status == status.Value);
         }
 
+        var totalCount = await query.CountAsync();
+
         var orders = await query
             .OrderByDescending(o => o.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync();
 
-        return [.. orders.Select(MapToOrderResponse)];
+        return new CustomerOrderPage([.. orders.Select(MapToOrderResponse)], totalCount);
     }
 
     public async Task<OrderResponse> TransitionOrderStatusAsync(Guid orderId, OrderStatus newStatus) {

@@ -59,8 +59,8 @@ public class OrderController(IOrderService orderService) : ControllerBase {
             parsedStatus = resultStatus;
         }
 
-        var orders = await _orderService.GetCustomerOrdersAsync(customerPrincipalId, parsedStatus, page, pageSize);
-        return Ok(orders);
+        var result = await _orderService.GetCustomerOrdersAsync(customerPrincipalId, parsedStatus, page, pageSize);
+        return Ok(result.Orders);
     }
 
     [HttpGet("{orderId:guid}")]
