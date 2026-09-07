@@ -8,13 +8,10 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Kinetix.OrderService.Migrations
-{
+namespace Kinetix.OrderService.Migrations {
     [DbContext(typeof(OrderDbContext))]
-    partial class OrderDbContextModelSnapshot : ModelSnapshot
-    {
-        protected override void BuildModel(ModelBuilder modelBuilder)
-        {
+    partial class OrderDbContextModelSnapshot : ModelSnapshot {
+        protected override void BuildModel(ModelBuilder modelBuilder) {
 #pragma warning disable 612, 618
             modelBuilder
                 .HasAnnotation("ProductVersion", "10.0.0-rc.2.25502.107")
@@ -22,275 +19,267 @@ namespace Kinetix.OrderService.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CheckoutSaga", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CheckoutSaga", b => {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
+                b.Property<DateTime>("CreatedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("created_at");
 
-                    b.Property<string>("CustomerPrincipalId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("customer_principal_id");
+                b.Property<string>("CustomerPrincipalId")
+                    .IsRequired()
+                    .HasColumnType("text")
+                    .HasColumnName("customer_principal_id");
 
-                    b.Property<string>("FailureReason")
-                        .HasColumnType("text")
-                        .HasColumnName("failure_reason");
+                b.Property<string>("FailureReason")
+                    .HasColumnType("text")
+                    .HasColumnName("failure_reason");
 
-                    b.Property<string>("OrderNumber")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("order_number");
+                b.Property<string>("OrderNumber")
+                    .IsRequired()
+                    .HasColumnType("text")
+                    .HasColumnName("order_number");
 
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("state");
+                b.Property<string>("State")
+                    .IsRequired()
+                    .HasMaxLength(20)
+                    .HasColumnType("character varying(20)")
+                    .HasColumnName("state");
 
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
+                b.Property<DateTime>("UpdatedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("updated_at");
 
-                    b.HasKey("Id");
+                b.HasKey("Id");
 
-                    b.HasIndex("OrderNumber")
-                        .IsUnique();
+                b.HasIndex("OrderNumber")
+                    .IsUnique();
 
-                    b.HasIndex("State", "UpdatedAt");
+                b.HasIndex("State", "UpdatedAt");
 
-                    b.ToTable("checkout_sagas");
-                });
+                b.ToTable("checkout_sagas");
+            });
 
-            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CheckoutSagaStep", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CheckoutSagaStep", b => {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
+                b.Property<DateTime>("CreatedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("created_at");
 
-                    b.Property<string>("Detail")
-                        .HasColumnType("text")
-                        .HasColumnName("detail");
+                b.Property<string>("Detail")
+                    .HasColumnType("text")
+                    .HasColumnName("detail");
 
-                    b.Property<string>("MerchantPrincipalId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("merchant_principal_id");
+                b.Property<string>("MerchantPrincipalId")
+                    .IsRequired()
+                    .HasColumnType("text")
+                    .HasColumnName("merchant_principal_id");
 
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("name");
+                b.Property<string>("Name")
+                    .IsRequired()
+                    .HasMaxLength(30)
+                    .HasColumnType("character varying(30)")
+                    .HasColumnName("name");
 
-                    b.Property<int>("Quantity")
-                        .HasColumnType("integer")
-                        .HasColumnName("quantity");
+                b.Property<int>("Quantity")
+                    .HasColumnType("integer")
+                    .HasColumnName("quantity");
 
-                    b.Property<string>("Reference")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("reference");
+                b.Property<string>("Reference")
+                    .IsRequired()
+                    .HasColumnType("text")
+                    .HasColumnName("reference");
 
-                    b.Property<Guid>("SagaId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("saga_id");
+                b.Property<Guid>("SagaId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("saga_id");
 
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("state");
+                b.Property<string>("State")
+                    .IsRequired()
+                    .HasMaxLength(20)
+                    .HasColumnType("character varying(20)")
+                    .HasColumnName("state");
 
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
+                b.Property<DateTime>("UpdatedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("updated_at");
 
-                    b.HasKey("Id");
+                b.HasKey("Id");
 
-                    b.HasIndex("SagaId");
+                b.HasIndex("SagaId");
 
-                    b.ToTable("checkout_saga_steps");
-                });
+                b.ToTable("checkout_saga_steps");
+            });
 
-            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.Order", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.Order", b => {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
 
-                    b.Property<string>("AppliedVoucher")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("applied_voucher");
+                b.Property<string>("AppliedVoucher")
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)")
+                    .HasColumnName("applied_voucher");
 
-                    b.Property<decimal>("BaseShippingFee")
-                        .HasColumnType("decimal(18,2)")
-                        .HasColumnName("base_shipping_fee");
+                b.Property<decimal>("BaseShippingFee")
+                    .HasColumnType("decimal(18,2)")
+                    .HasColumnName("base_shipping_fee");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
+                b.Property<DateTime>("CreatedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("created_at");
 
-                    b.Property<string>("CustomerPrincipalId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("customer_principal_id");
+                b.Property<string>("CustomerPrincipalId")
+                    .IsRequired()
+                    .HasColumnType("text")
+                    .HasColumnName("customer_principal_id");
 
-                    b.Property<decimal>("DiscountAmount")
-                        .HasColumnType("decimal(18,2)")
-                        .HasColumnName("discount_amount");
+                b.Property<decimal>("DiscountAmount")
+                    .HasColumnType("decimal(18,2)")
+                    .HasColumnName("discount_amount");
 
-                    b.Property<double>("DistanceKm")
-                        .HasColumnType("double precision")
-                        .HasColumnName("distance_km");
+                b.Property<double>("DistanceKm")
+                    .HasColumnType("double precision")
+                    .HasColumnName("distance_km");
 
-                    b.Property<decimal>("FinalShippingFee")
-                        .HasColumnType("decimal(18,2)")
-                        .HasColumnName("final_shipping_fee");
+                b.Property<decimal>("FinalShippingFee")
+                    .HasColumnType("decimal(18,2)")
+                    .HasColumnName("final_shipping_fee");
 
-                    b.Property<decimal>("FinalTotal")
-                        .HasColumnType("decimal(18,2)")
-                        .HasColumnName("final_total");
+                b.Property<decimal>("FinalTotal")
+                    .HasColumnType("decimal(18,2)")
+                    .HasColumnName("final_total");
 
-                    b.Property<string>("IdempotencyKey")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("idempotency_key");
+                b.Property<string>("IdempotencyKey")
+                    .HasMaxLength(100)
+                    .HasColumnType("character varying(100)")
+                    .HasColumnName("idempotency_key");
 
-                    b.Property<string>("OrderNumber")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("order_number");
+                b.Property<string>("OrderNumber")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)")
+                    .HasColumnName("order_number");
 
-                    b.Property<string>("ShippingAddress")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("shipping_address");
+                b.Property<string>("ShippingAddress")
+                    .IsRequired()
+                    .HasMaxLength(500)
+                    .HasColumnType("character varying(500)")
+                    .HasColumnName("shipping_address");
 
-                    b.Property<decimal>("ShippingDiscount")
-                        .HasColumnType("decimal(18,2)")
-                        .HasColumnName("shipping_discount");
+                b.Property<decimal>("ShippingDiscount")
+                    .HasColumnType("decimal(18,2)")
+                    .HasColumnName("shipping_discount");
 
-                    b.Property<string>("ShippingServiceTier")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("shipping_service_tier");
+                b.Property<string>("ShippingServiceTier")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)")
+                    .HasColumnName("shipping_service_tier");
 
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("status");
+                b.Property<string>("Status")
+                    .IsRequired()
+                    .HasMaxLength(30)
+                    .HasColumnType("character varying(30)")
+                    .HasColumnName("status");
 
-                    b.Property<decimal>("Subtotal")
-                        .HasColumnType("decimal(18,2)")
-                        .HasColumnName("subtotal");
+                b.Property<decimal>("Subtotal")
+                    .HasColumnType("decimal(18,2)")
+                    .HasColumnName("subtotal");
 
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
+                b.Property<DateTime>("UpdatedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("updated_at");
 
-                    b.HasKey("Id");
+                b.HasKey("Id");
 
-                    b.HasIndex("CustomerPrincipalId");
+                b.HasIndex("CustomerPrincipalId");
 
-                    b.HasIndex("IdempotencyKey")
-                        .IsUnique();
+                b.HasIndex("IdempotencyKey")
+                    .IsUnique();
 
-                    b.HasIndex("OrderNumber")
-                        .IsUnique();
+                b.HasIndex("OrderNumber")
+                    .IsUnique();
 
-                    b.ToTable("orders");
-                });
+                b.ToTable("orders");
+            });
 
-            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.OrderItem", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.OrderItem", b => {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uuid")
+                    .HasColumnName("id");
 
-                    b.Property<decimal>("LineSubtotal")
-                        .HasColumnType("decimal(18,2)")
-                        .HasColumnName("line_subtotal");
+                b.Property<decimal>("LineSubtotal")
+                    .HasColumnType("decimal(18,2)")
+                    .HasColumnName("line_subtotal");
 
-                    b.Property<Guid>("OrderId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("order_id");
+                b.Property<Guid>("OrderId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("order_id");
 
-                    b.Property<string>("ProductId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("product_id");
+                b.Property<string>("ProductId")
+                    .IsRequired()
+                    .HasMaxLength(100)
+                    .HasColumnType("character varying(100)")
+                    .HasColumnName("product_id");
 
-                    b.Property<string>("ProductTitle")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)")
-                        .HasColumnName("product_title");
+                b.Property<string>("ProductTitle")
+                    .IsRequired()
+                    .HasMaxLength(255)
+                    .HasColumnType("character varying(255)")
+                    .HasColumnName("product_title");
 
-                    b.Property<int>("Quantity")
-                        .HasColumnType("integer")
-                        .HasColumnName("quantity");
+                b.Property<int>("Quantity")
+                    .HasColumnType("integer")
+                    .HasColumnName("quantity");
 
-                    b.Property<decimal>("UnitPrice")
-                        .HasColumnType("decimal(18,2)")
-                        .HasColumnName("unit_price");
+                b.Property<decimal>("UnitPrice")
+                    .HasColumnType("decimal(18,2)")
+                    .HasColumnName("unit_price");
 
-                    b.HasKey("Id");
+                b.HasKey("Id");
 
-                    b.HasIndex("OrderId");
+                b.HasIndex("OrderId");
 
-                    b.ToTable("order_items");
-                });
+                b.ToTable("order_items");
+            });
 
-            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CheckoutSagaStep", b =>
-                {
-                    b.HasOne("Kinetix.OrderService.Domain.Entities.CheckoutSaga", "Saga")
-                        .WithMany("Steps")
-                        .HasForeignKey("SagaId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CheckoutSagaStep", b => {
+                b.HasOne("Kinetix.OrderService.Domain.Entities.CheckoutSaga", "Saga")
+                    .WithMany("Steps")
+                    .HasForeignKey("SagaId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
 
-                    b.Navigation("Saga");
-                });
+                b.Navigation("Saga");
+            });
 
-            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.OrderItem", b =>
-                {
-                    b.HasOne("Kinetix.OrderService.Domain.Entities.Order", "Order")
-                        .WithMany("Items")
-                        .HasForeignKey("OrderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.OrderItem", b => {
+                b.HasOne("Kinetix.OrderService.Domain.Entities.Order", "Order")
+                    .WithMany("Items")
+                    .HasForeignKey("OrderId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
 
-                    b.Navigation("Order");
-                });
+                b.Navigation("Order");
+            });
 
-            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CheckoutSaga", b =>
-                {
-                    b.Navigation("Steps");
-                });
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CheckoutSaga", b => {
+                b.Navigation("Steps");
+            });
 
-            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.Order", b =>
-                {
-                    b.Navigation("Items");
-                });
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.Order", b => {
+                b.Navigation("Items");
+            });
 #pragma warning restore 612, 618
         }
     }

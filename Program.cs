@@ -158,7 +158,6 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
-
 {
     var jwks = app.Services.GetRequiredService<JwksKeyProvider>();
     const int attempts = 5;

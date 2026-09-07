@@ -31,6 +31,12 @@ public class OrderController(IOrderService orderService) : ControllerBase {
         try {
             var order = await _orderService.CheckoutAsync(customerPrincipalId, request, idempotencyKey);
             return CreatedAtAction(nameof(GetOrderById), new { orderId = order.Id }, order);
+        } catch (CheckoutFailedException ex) {
+            return Conflict(new {
+                error = "CHECKOUT_ROLLED_BACK",
+                orderNumber = ex.OrderNumber,
+                message = ex.Reason,
+            });
         } catch (InvalidOperationException ex) {
             return BadRequest(new { error = "CHECKOUT_FAILED", message = ex.Message });
         }
