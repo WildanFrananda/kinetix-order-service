@@ -10,11 +10,17 @@ using Kinetix.OrderService.Application.Services;
 using Pricing.V1;
 using Kinetix.OrderService.Infrastructure.Background;
 using Kinetix.OrderService.Infrastructure.Http;
+using Kinetix.OrderService.Infrastructure.Observability;
 using Kinetix.OrderService.Infrastructure.Persistence;
 
 EnvLoader.Load();
 
 var builder = WebApplication.CreateBuilder(args);
+
+var configuredLogLevel = LogLevelSetting.FromEnvironment(builder.Configuration["LOG_LEVEL"]);
+if (configuredLogLevel is not null) {
+    builder.Logging.SetMinimumLevel(configuredLogLevel.Value);
+}
 
 var connectionString = builder.Configuration["DATABASE_URL"]
     ?? builder.Configuration.GetConnectionString("DefaultConnection")
