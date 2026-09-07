@@ -14,10 +14,12 @@ public sealed class PeerAuthorizationInterceptor : Interceptor {
 
         var raw = config["KINETIX_GRPC_ALLOWED_PEERS"]
             ?? throw new InvalidOperationException(
-                "KINETIX_GRPC_ALLOWED_PEERS is required and has no default.");
+                "KINETIX_GRPC_ALLOWED_PEERS is required and has no default."
+            );
 
         _allowed = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                      .ToHashSet(StringComparer.Ordinal);
+            .ToHashSet(StringComparer.Ordinal
+        );
 
         if (_allowed.Count == 0) {
             throw new InvalidOperationException("KINETIX_GRPC_ALLOWED_PEERS is set but names no services.");
@@ -27,7 +29,8 @@ public sealed class PeerAuthorizationInterceptor : Interceptor {
     public override async Task<TResponse> UnaryServerHandler<TRequest, TResponse>(
         TRequest request,
         ServerCallContext context,
-        UnaryServerMethod<TRequest, TResponse> continuation) {
+        UnaryServerMethod<TRequest, TResponse> continuation
+    ) {
         Authorize(context);
         return await continuation(request, context);
     }
@@ -35,7 +38,8 @@ public sealed class PeerAuthorizationInterceptor : Interceptor {
     public override async Task<TResponse> ClientStreamingServerHandler<TRequest, TResponse>(
         IAsyncStreamReader<TRequest> requestStream,
         ServerCallContext context,
-        ClientStreamingServerMethod<TRequest, TResponse> continuation) {
+        ClientStreamingServerMethod<TRequest, TResponse> continuation
+    ) {
         Authorize(context);
         return await continuation(requestStream, context);
     }
@@ -44,7 +48,8 @@ public sealed class PeerAuthorizationInterceptor : Interceptor {
         TRequest request,
         IServerStreamWriter<TResponse> responseStream,
         ServerCallContext context,
-        ServerStreamingServerMethod<TRequest, TResponse> continuation) {
+        ServerStreamingServerMethod<TRequest, TResponse> continuation
+    ) {
         Authorize(context);
         await continuation(request, responseStream, context);
     }
@@ -53,24 +58,54 @@ public sealed class PeerAuthorizationInterceptor : Interceptor {
         IAsyncStreamReader<TRequest> requestStream,
         IServerStreamWriter<TResponse> responseStream,
         ServerCallContext context,
-        DuplexStreamingServerMethod<TRequest, TResponse> continuation) {
+        DuplexStreamingServerMethod<TRequest, TResponse> continuation
+    ) {
         Authorize(context);
         await continuation(requestStream, responseStream, context);
     }
 
     private void Authorize(ServerCallContext context) {
         var http = context.GetHttpContext();
-        X509Certificate2? peer = http.Connection.ClientCertificate ?? throw new RpcException(new Status(
+
+        var requestId = http.TraceIdentifier;
+
+        X509Certificate2? peer = http.Connection.ClientCertificate;
+        if (peer is null) {
+            _log.LogWarning(
+                "refused a gRPC call to {Method} from a peer with no client certificate (request_id={RequestId})",
+                context.Method, requestId
+            );
+            throw new RpcException(new Status(
                 StatusCode.Unauthenticated,
-                "a client certificate carrying a SPIFFE identity is required"));
-        var service = SpiffePeer.ServiceOf(peer) ?? throw new RpcException(new Status(
+                "a client certificate carrying a SPIFFE identity is required"
+            ));
+        }
+
+        var service = SpiffePeer.ServiceOf(peer);
+        if (service is null) {
+            _log.LogWarning(
+                "refused a gRPC call to {Method} from a peer whose certificate carries no SPIFFE identity (request_id={RequestId})",
+                context.Method, requestId
+            );
+            throw new RpcException(new Status(
                 StatusCode.Unauthenticated,
-                "the client certificate carries no SPIFFE identity in this trust domain"));
+                "the client certificate carries no SPIFFE identity in this trust domain"
+            ));
+        }
+
         if (!_allowed.Contains(service)) {
-            _log.LogWarning("refused a gRPC call from {Peer}, which is not on the allow list", service);
+            _log.LogWarning(
+                "refused a gRPC call to {Method} from {Peer}, which is not on the allow list (request_id={RequestId})",
+                context.Method, service, requestId
+            );
             throw new RpcException(new Status(
                 StatusCode.PermissionDenied,
-                "this service is not permitted to call order"));
+                "this service is not permitted to call order"
+            ));
         }
+
+        _log.LogInformation(
+            "gRPC {Method} from {Peer} (request_id={RequestId})", context.Method, service, requestId
+        );
     }
 }
