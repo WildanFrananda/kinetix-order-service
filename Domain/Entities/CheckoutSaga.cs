@@ -24,6 +24,9 @@ public class CheckoutSaga {
     [Column("failure_reason")]
     public string? FailureReason { get; set; }
 
+    [Column("compensation_attempts")]
+    public int CompensationAttempts { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

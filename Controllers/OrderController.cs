@@ -31,6 +31,12 @@ public class OrderController(IOrderService orderService) : ControllerBase {
         try {
             var order = await _orderService.CheckoutAsync(customerPrincipalId, request, idempotencyKey);
             return CreatedAtAction(nameof(GetOrderById), new { orderId = order.Id }, order);
+        } catch (PricingUnavailableException) {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
+                error = "PRICING_UNAVAILABLE",
+                message = "prices cannot be confirmed right now, so this order was not placed. "
+                        + "Nothing has been charged or reserved — please try again shortly.",
+            });
         } catch (CheckoutFailedException ex) {
             return Conflict(new {
                 error = "CHECKOUT_ROLLED_BACK",

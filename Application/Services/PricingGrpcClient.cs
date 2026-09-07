@@ -20,8 +20,6 @@ public class PricingGrpcClient(
             return new PriceCalculationResult(0m, 0m, 0m, 0m, 0m, 0m, []);
         }
 
-        var subtotal = lines.Sum(l => l.UnitPrice * l.Quantity);
-
         try {
             var request = new CalculatePriceRequest {
                 VoucherCode = voucherCode ?? string.Empty,
@@ -54,14 +52,11 @@ public class PricingGrpcClient(
             );
         } catch (Exception ex) {
             _logger.LogError(
-                ex, "pricing did not answer; this order is priced from the cart alone, so any "
-                  + "voucher or discount the customer expected is NOT applied");
+                ex, "pricing did not answer, so this checkout is refused rather than priced at "
+                  + "list; any voucher, discount or flash sale the customer expected cannot be "
+                  + "verified from here");
 
-            var finalFee = Math.Max(0m, baseShippingFee);
-
-            return new PriceCalculationResult(
-                subtotal, 0m, baseShippingFee, 0m, finalFee, subtotal + finalFee, []
-            );
+            throw new PricingUnavailableException(ex);
         }
     }
 

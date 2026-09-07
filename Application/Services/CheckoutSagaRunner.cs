@@ -79,7 +79,7 @@ public class CheckoutSagaRunner(
 
         } catch (Exception e) {
             _logger.LogError(e, "checkout saga for {Order} threw; compensating", plan.OrderNumber);
-            return await Compensate(saga, e.Message);
+            return await Compensate(saga, "a service this checkout depends on did not answer");
         }
     }
 
@@ -132,6 +132,9 @@ public class CheckoutSagaRunner(
             step.UpdatedAt = DateTime.UtcNow;
         }
 
+        if (!allReleased) {
+            saga.CompensationAttempts += 1;
+        }
         saga.State = allReleased ? SagaState.Compensated : SagaState.Stuck;
         saga.UpdatedAt = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
