@@ -7,11 +7,3 @@ public record AddCartItemRequest(
     int Quantity,
     string? CategoryId
 );
-
-public record UpdateCartItemRequest(
-    int Quantity
-);
-
-public record ApplyCartVoucherRequest(
-    string VoucherCode
-);

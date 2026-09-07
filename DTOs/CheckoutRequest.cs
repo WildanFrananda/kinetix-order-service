@@ -7,7 +7,3 @@ public record CheckoutRequest(
     decimal BaseShippingFee = 0,
     double DistanceKm = 0
 );
-
-public record UpdateOrderStatusRequest(
-    string Status
-);
