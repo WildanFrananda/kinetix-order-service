@@ -8,12 +8,10 @@ namespace Kinetix.OrderService.Controllers;
 [Route("health")]
 public class HealthController(OrderDbContext dbContext) : ControllerBase {
     [HttpGet]
-    public IActionResult HealthCheck() {
+    public static IActionResult HealthCheck() {
         return Ok(new {
             status = "ok",
-            service = "kinetix-order-service",
-            runtime = ".NET 10.0 (C# 13)",
-            timestamp = DateTime.UtcNow
+            service = "kinetix-order-service"
         });
     }
 

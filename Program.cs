@@ -72,6 +72,12 @@ static Uri AsMesh(string url) =>
         ? string.Concat("https://", url.AsSpan("http://".Length))
         : url);
 
+var grpcDeadline = TimeSpan.FromSeconds(
+    double.TryParse(builder.Configuration["KINETIX_GRPC_DEADLINE_SECONDS"], out var seconds)
+        ? seconds
+        : 5);
+builder.Services.AddSingleton(new GrpcDeadlineInterceptor(grpcDeadline));
+
 HttpMessageHandler MeshHandler() => new SocketsHttpHandler {
     SslOptions = new SslClientAuthenticationOptions {
         ClientCertificates = new X509Certificate2Collection(serviceIdentity.Leaf),
@@ -83,7 +89,8 @@ HttpMessageHandler MeshHandler() => new SocketsHttpHandler {
 builder.Services.AddGrpcClient<PricingService.PricingServiceClient>(options => {
     options.Address = AsMesh(pricingGrpcUrl);
 }).ConfigurePrimaryHttpMessageHandler(MeshHandler)
-  .AddInterceptor<RequestIdForwardingInterceptor>();
+  .AddInterceptor<RequestIdForwardingInterceptor>()
+  .AddInterceptor<GrpcDeadlineInterceptor>();
 
 var restPort = int.Parse(builder.Configuration["PORT"] ?? "8001");
 var grpcPort = int.Parse(builder.Configuration["GRPC_PORT"] ?? "50055");
@@ -108,7 +115,8 @@ var matchingGrpcUrl = builder.Configuration["MATCHING_GRPC_URL"] ?? "http://kine
 builder.Services.AddGrpcClient<Shipping.V1.ShippingService.ShippingServiceClient>(options => {
     options.Address = AsMesh(matchingGrpcUrl);
 }).ConfigurePrimaryHttpMessageHandler(MeshHandler)
-  .AddInterceptor<RequestIdForwardingInterceptor>();
+  .AddInterceptor<RequestIdForwardingInterceptor>()
+  .AddInterceptor<GrpcDeadlineInterceptor>();
 
 var warehouseGrpcUrl = builder.Configuration["WAREHOUSE_GRPC_URL"] ?? "http://kinetix-warehouse-grpc:50051";
 var paymentGrpcUrl = builder.Configuration["PAYMENT_GRPC_URL"] ?? "http://kinetix-payment-service:50056";
@@ -116,12 +124,14 @@ var paymentGrpcUrl = builder.Configuration["PAYMENT_GRPC_URL"] ?? "http://kineti
 builder.Services.AddGrpcClient<Fulfillment.V1.BinStockService.BinStockServiceClient>(options => {
     options.Address = AsMesh(warehouseGrpcUrl);
 }).ConfigurePrimaryHttpMessageHandler(MeshHandler)
-  .AddInterceptor<RequestIdForwardingInterceptor>();
+  .AddInterceptor<RequestIdForwardingInterceptor>()
+  .AddInterceptor<GrpcDeadlineInterceptor>();
 
 builder.Services.AddGrpcClient<Payment.V1.PaymentService.PaymentServiceClient>(options => {
     options.Address = AsMesh(paymentGrpcUrl);
 }).ConfigurePrimaryHttpMessageHandler(MeshHandler)
-  .AddInterceptor<RequestIdForwardingInterceptor>();
+  .AddInterceptor<RequestIdForwardingInterceptor>()
+  .AddInterceptor<GrpcDeadlineInterceptor>();
 
 builder.Services.AddGrpc(options => {
     options.Interceptors.Add<PeerAuthorizationInterceptor>();
@@ -176,8 +186,7 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-var app = builder.Build();
-{
+var app = builder.Build(); {
     var jwks = app.Services.GetRequiredService<JwksKeyProvider>();
     const int attempts = 5;
     for (var attempt = 1; attempt <= attempts; attempt++) {
