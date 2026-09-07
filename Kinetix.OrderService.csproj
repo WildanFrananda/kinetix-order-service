@@ -47,6 +47,18 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <!-- Pinned above the 17.14.8 that Microsoft.EntityFrameworkCore.Design resolves
+         transitively, which carries GHSA-w3q9-fxm7-j8fq (high severity). Design-time only:
+         `dotnet publish` emits neither, so the runtime image never carried them — verified by
+         publishing and listing the output, not by reading PrivateAssets. The pin is here anyway
+         because an NU1903 that nobody actions on every build is how a real one gets missed.
+         Remove both lines once EFCore.Design resolves a patched MSBuild on its own. -->
+    <PackageReference Include="Microsoft.Build.Tasks.Core" Version="17.14.28">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
     <PackageReference Include="StackExchange.Redis" Version="2.8.24" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
   </ItemGroup>
