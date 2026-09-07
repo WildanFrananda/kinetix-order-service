@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Kinetix.OrderService.Application.Services;
 using Pricing.V1;
 using Kinetix.OrderService.Infrastructure.Background;
+using Kinetix.OrderService.Infrastructure.Http;
 using Kinetix.OrderService.Infrastructure.Persistence;
 
 EnvLoader.Load();
@@ -153,6 +154,9 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 
 builder.Services.AddHostedService<StuckSagaSweeper>();
 
+builder.Services.AddExceptionHandler<UnhandledExceptionHandler>();
+builder.Services.AddProblemDetails();
+
 builder.Services.AddGrpcReflection();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -183,6 +187,8 @@ var app = builder.Build();
     app.Logger.LogInformation("gRPC listening on {Port} (mTLS)", grpcPort);
 }
 
+app.UseExceptionHandler();
+
 if (app.Environment.IsDevelopment()) {
     app.UseSwagger();
     app.UseSwaggerUI();
@@ -194,9 +200,7 @@ app.MapControllers();
 
 app.MapGrpcService<OrderGrpcServerService>().RequireHost($"*:{grpcPort}");
 
-if (app.Environment.IsDevelopment()) {
-    app.MapGrpcReflectionService();
-}
+app.MapGrpcReflectionService();
 
 await app.RunAsync();
 return 0;
