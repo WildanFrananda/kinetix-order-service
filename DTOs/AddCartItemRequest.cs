@@ -5,5 +5,6 @@ public record AddCartItemRequest(
     string ProductTitle,
     decimal UnitPrice,
     int Quantity,
-    string? CategoryId
+    string? CategoryId,
+    string? MerchantPrincipalId
 );

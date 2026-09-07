@@ -22,6 +22,107 @@ namespace Kinetix.OrderService.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CheckoutSaga", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CustomerPrincipalId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("customer_principal_id");
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("text")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<string>("OrderNumber")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("order_number");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("state");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderNumber")
+                        .IsUnique();
+
+                    b.HasIndex("State", "UpdatedAt");
+
+                    b.ToTable("checkout_sagas");
+                });
+
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CheckoutSagaStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("text")
+                        .HasColumnName("detail");
+
+                    b.Property<string>("MerchantPrincipalId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("merchant_principal_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("reference");
+
+                    b.Property<Guid>("SagaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("saga_id");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("state");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SagaId");
+
+                    b.ToTable("checkout_saga_steps");
+                });
+
             modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.Order", b =>
                 {
                     b.Property<Guid>("Id")
@@ -159,6 +260,17 @@ namespace Kinetix.OrderService.Migrations
                     b.ToTable("order_items");
                 });
 
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CheckoutSagaStep", b =>
+                {
+                    b.HasOne("Kinetix.OrderService.Domain.Entities.CheckoutSaga", "Saga")
+                        .WithMany("Steps")
+                        .HasForeignKey("SagaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Saga");
+                });
+
             modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.OrderItem", b =>
                 {
                     b.HasOne("Kinetix.OrderService.Domain.Entities.Order", "Order")
@@ -168,6 +280,11 @@ namespace Kinetix.OrderService.Migrations
                         .IsRequired();
 
                     b.Navigation("Order");
+                });
+
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CheckoutSaga", b =>
+                {
+                    b.Navigation("Steps");
                 });
 
             modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.Order", b =>

@@ -35,7 +35,8 @@ public class CartService(IDistributedCache cache) : ICartService {
                 ProductTitle = request.ProductTitle,
                 UnitPrice = request.UnitPrice,
                 Quantity = request.Quantity,
-                CategoryId = request.CategoryId
+                CategoryId = request.CategoryId,
+                MerchantPrincipalId = request.MerchantPrincipalId
             });
         }
 

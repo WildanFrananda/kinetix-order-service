@@ -8,6 +8,7 @@ using Kinetix.OrderService.Security;
 using Microsoft.EntityFrameworkCore;
 using Kinetix.OrderService.Application.Services;
 using Pricing.V1;
+using Kinetix.OrderService.Infrastructure.Background;
 using Kinetix.OrderService.Infrastructure.Persistence;
 
 EnvLoader.Load();
@@ -100,6 +101,17 @@ builder.Services.AddGrpcClient<Shipping.V1.ShippingService.ShippingServiceClient
     options.Address = AsMesh(matchingGrpcUrl);
 }).ConfigurePrimaryHttpMessageHandler(MeshHandler);
 
+var warehouseGrpcUrl = builder.Configuration["WAREHOUSE_GRPC_URL"] ?? "http://kinetix-warehouse-grpc:50051";
+var paymentGrpcUrl = builder.Configuration["PAYMENT_GRPC_URL"] ?? "http://kinetix-payment-service:50056";
+
+builder.Services.AddGrpcClient<Fulfillment.V1.BinStockService.BinStockServiceClient>(options => {
+    options.Address = AsMesh(warehouseGrpcUrl);
+}).ConfigurePrimaryHttpMessageHandler(MeshHandler);
+
+builder.Services.AddGrpcClient<Payment.V1.PaymentService.PaymentServiceClient>(options => {
+    options.Address = AsMesh(paymentGrpcUrl);
+}).ConfigurePrimaryHttpMessageHandler(MeshHandler);
+
 builder.Services.AddGrpc(options => {
     options.Interceptors.Add<PeerAuthorizationInterceptor>();
 });
@@ -119,7 +131,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 ?? throw new InvalidOperationException("JWT_AUDIENCE is required and has no default."),
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidAlgorithms = new[] { SecurityAlgorithms.RsaSha256 },
+            ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
         };
     });
 
@@ -132,7 +144,13 @@ builder.Services.AddAuthorization();
 builder.Services.AddScoped<IPricingClient, PricingGrpcClient>();
 builder.Services.AddScoped<IShippingClient, ShippingGrpcClient>();
 builder.Services.AddScoped<ICartService, CartService>();
+builder.Services.AddScoped<IVoucherQuotaClient, VoucherQuotaGrpcClient>();
+builder.Services.AddScoped<IStockClient, StockGrpcClient>();
+builder.Services.AddScoped<IEscrowClient, EscrowGrpcClient>();
+builder.Services.AddScoped<CheckoutSagaRunner>();
 builder.Services.AddScoped<IOrderService, OrderService>();
+
+builder.Services.AddHostedService<StuckSagaSweeper>();
 
 builder.Services.AddGrpcReflection();
 builder.Services.AddControllers();

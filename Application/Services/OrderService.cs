@@ -7,10 +7,16 @@ using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
 
 namespace Kinetix.OrderService.Application.Services;
 
-public class OrderService(OrderDbContext dbContext, ICartService cartService, IPricingClient pricingClient) : IOrderService {
+public class OrderService(
+    OrderDbContext dbContext,
+    ICartService cartService,
+    IPricingClient pricingClient,
+    CheckoutSagaRunner sagaRunner
+) : IOrderService {
     private readonly OrderDbContext _dbContext = dbContext;
     private readonly ICartService _cartService = cartService;
     private readonly IPricingClient _pricingClient = pricingClient;
+    private readonly CheckoutSagaRunner _sagaRunner = sagaRunner;
 
     public async Task<OrderResponse> CheckoutAsync(string customerPrincipalId, CheckoutRequest request, string? idempotencyKey) {
         if (!string.IsNullOrEmpty(idempotencyKey)) {
@@ -66,6 +72,27 @@ public class OrderService(OrderDbContext dbContext, ICartService cartService, IP
 
         _dbContext.Orders.Add(order);
         await _dbContext.SaveChangesAsync();
+
+        var plan = new CheckoutPlan(
+            OrderNumber: orderNumber,
+            CustomerPrincipalId: customerPrincipalId,
+            VoucherCode: appliedVoucher,
+            Reservations: [.. cart.Items.Select(item =>
+                new SagaReservation(item.MerchantPrincipalId ?? string.Empty, item.ProductId, item.Quantity))],
+            MerchantPrincipalId: cart.Items.FirstOrDefault()?.MerchantPrincipalId ?? string.Empty,
+            TotalOrderAmount: priceResult.FinalTotal,
+            MerchantAmount: priceResult.Subtotal - priceResult.VoucherDiscount,
+            ShippingFeeAmount: priceResult.FinalShippingFee);
+
+        var outcome = await _sagaRunner.RunAsync(plan);
+
+        if (!outcome.Succeeded) {
+            order.Status = OrderStatus.CANCELLED;
+            order.UpdatedAt = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
+
+            throw new CheckoutFailedException(orderNumber, outcome.FailureReason ?? "a checkout step was refused");
+        }
 
         await _cartService.ClearCartAsync(customerPrincipalId);
 

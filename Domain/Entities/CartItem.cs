@@ -6,5 +6,6 @@ public class CartItem {
     public decimal UnitPrice { get; set; }
     public int Quantity { get; set; }
     public string? CategoryId { get; set; }
+    public string? MerchantPrincipalId { get; set; }
     public decimal LineTotal => UnitPrice * Quantity;
 }
