@@ -8,7 +8,7 @@ namespace Kinetix.OrderService.Controllers;
 [Route("health")]
 public class HealthController(OrderDbContext dbContext) : ControllerBase {
     [HttpGet]
-    public static IActionResult HealthCheck() {
+    public IActionResult HealthCheck() {
         return Ok(new {
             status = "ok",
             service = "kinetix-order-service"

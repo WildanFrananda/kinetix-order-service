@@ -35,9 +35,9 @@ public class EscrowGrpcClient(
             });
             return StepResult.Ok();
         } catch (RpcException e) when (
-            e.StatusCode == StatusCode.FailedPrecondition
-            || e.StatusCode == StatusCode.InvalidArgument
-        ) {
+              e.StatusCode == StatusCode.FailedPrecondition
+              || e.StatusCode == StatusCode.InvalidArgument
+          ) {
             return StepResult.Refused(e.Status.Detail);
         } catch (RpcException e) {
             _logger.LogError(e, "payment did not answer CreateEscrowHold for {Order}", orderNumber);
@@ -51,7 +51,17 @@ public class EscrowGrpcClient(
             Reason = reason,
         });
 
-        return response.Found ? StepResult.Ok() : StepResult.Repeat();
+        if (response.Found) {
+            return StepResult.Ok();
+        }
+
+        _logger.LogError(
+            "payment reported no escrow hold to refund for {Order} (reason: {Reason}). Either none "
+                + "was ever created, or one was created without its row. Check the customer's "
+                + "wallet ledger before assuming this order cost nothing",
+            orderNumber, reason);
+
+        return StepResult.Refused("payment held nothing to refund for this order");
     }
 
     private static Money ToMoney(decimal amount) => new() {
