@@ -29,6 +29,9 @@ public class CheckoutSagaStep {
     [Column("merchant_principal_id")]
     public string MerchantPrincipalId { get; set; } = string.Empty;
 
+    [Column("product_id")]
+    public string? ProductId { get; set; }
+
     [Required]
     [Column("state")]
     public SagaStepState State { get; set; } = SagaStepState.Attempting;

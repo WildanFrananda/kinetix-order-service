@@ -20,6 +20,10 @@ public class OrderServiceTests {
         voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
 
+        var flash = new Mock<IFlashSaleClient>();
+        flash.Setup(c => c.AllocateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(StepResult.Ok());
+
         var stock = new Mock<IStockClient>();
         stock.Setup(c => c.ReserveStockAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
@@ -29,7 +33,7 @@ public class OrderServiceTests {
                 It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
             .ReturnsAsync(StepResult.Ok());
 
-        var runner = new CheckoutSagaRunner(db, voucher.Object, stock.Object, escrow.Object,
+        var runner = new CheckoutSagaRunner(db, voucher.Object, flash.Object, stock.Object, escrow.Object,
             NullLogger<CheckoutSagaRunner>.Instance);
 
         return new OrderApplicationService(db, cart, pricing, runner);
@@ -60,8 +64,8 @@ public class OrderServiceTests {
         mockCartService.Setup(s => s.GetCartAsync(customerPrincipalId))
             .ReturnsAsync(cart);
 
-        mockPricingClient.Setup(p => p.CalculatePriceAsync("DISCOUNT10", 200000m, 15000m))
-            .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 15000m, 0m, 15000m, 195000m));
+        mockPricingClient.Setup(p => p.CalculatePriceAsync("DISCOUNT10", It.IsAny<IReadOnlyList<PriceLine>>(), 15000m))
+            .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 15000m, 0m, 15000m, 195000m, []));
 
         var orderService = NewOrderService(dbContext, mockCartService.Object, mockPricingClient.Object);
         var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "DISCOUNT10", "KINETIX_INSTANT", 15000m, 5.2);
@@ -81,7 +85,7 @@ public class OrderServiceTests {
         Assert.Equal(5.2, result.DistanceKm);
 
         mockCartService.Verify(s => s.ClearCartAsync(customerPrincipalId), Times.Once);
-        mockPricingClient.Verify(p => p.CalculatePriceAsync("DISCOUNT10", 200000m, 15000m), Times.Once);
+        mockPricingClient.Verify(p => p.CalculatePriceAsync("DISCOUNT10", It.IsAny<IReadOnlyList<PriceLine>>(), 15000m), Times.Once);
     }
 
     [Fact]

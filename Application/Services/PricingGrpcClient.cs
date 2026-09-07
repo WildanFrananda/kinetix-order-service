@@ -5,16 +5,22 @@ namespace Kinetix.OrderService.Application.Services;
 
 public class PricingGrpcClient(
     PricingService.PricingServiceClient client,
-    ILogger<PricingGrpcClient> logger) : IPricingClient {
+    ILogger<PricingGrpcClient> logger
+) : IPricingClient {
     private readonly PricingService.PricingServiceClient _client = client;
     private readonly ILogger<PricingGrpcClient> _logger = logger;
 
     private const long MinorPerMajor = 100L;
 
-    public async Task<PriceCalculationResult> CalculatePriceAsync(string? voucherCode, decimal subtotal, decimal baseShippingFee) {
-        if (subtotal <= 0m && baseShippingFee <= 0m) {
-            return new PriceCalculationResult(0m, 0m, 0m, 0m, 0m, 0m);
+    public async Task<PriceCalculationResult> CalculatePriceAsync(
+        string? voucherCode, IReadOnlyList<PriceLine> lines, decimal baseShippingFee
+    ) {
+
+        if (lines.Count == 0 && baseShippingFee <= 0m) {
+            return new PriceCalculationResult(0m, 0m, 0m, 0m, 0m, 0m, []);
         }
+
+        var subtotal = lines.Sum(l => l.UnitPrice * l.Quantity);
 
         try {
             var request = new CalculatePriceRequest {
@@ -22,11 +28,14 @@ public class PricingGrpcClient(
                 BaseShippingFee = ToMoney(baseShippingFee)
             };
 
-            request.Items.Add(new PriceItemRequest {
-                ProductId = "CART-ITEM",
-                BasePrice = ToMoney(subtotal),
-                Quantity = 1
-            });
+            foreach (var line in lines) {
+                request.Items.Add(new PriceItemRequest {
+                    ProductId = line.ProductId,
+                    CategoryId = line.CategoryId ?? string.Empty,
+                    BasePrice = ToMoney(line.UnitPrice),
+                    Quantity = line.Quantity
+                });
+            }
 
             var response = await _client.CalculatePriceAsync(request);
 
@@ -36,7 +45,12 @@ public class PricingGrpcClient(
                 FromMoney(response.BaseShippingFee),
                 FromMoney(response.ShippingDiscount),
                 FromMoney(response.FinalShippingFee),
-                FromMoney(response.FinalTotal)
+                FromMoney(response.FinalTotal),
+                [.. response.Items.Select(item => new PricedLine(
+                    item.ProductId,
+                    item.Quantity,
+                    string.IsNullOrWhiteSpace(item.AppliedFlashSale) ? null : item.AppliedFlashSale
+                ))]
             );
         } catch (Exception ex) {
             _logger.LogError(
@@ -44,7 +58,10 @@ public class PricingGrpcClient(
                   + "voucher or discount the customer expected is NOT applied");
 
             var finalFee = Math.Max(0m, baseShippingFee);
-            return new PriceCalculationResult(subtotal, 0m, baseShippingFee, 0m, finalFee, subtotal + finalFee);
+
+            return new PriceCalculationResult(
+                subtotal, 0m, baseShippingFee, 0m, finalFee, subtotal + finalFee, []
+            );
         }
     }
 

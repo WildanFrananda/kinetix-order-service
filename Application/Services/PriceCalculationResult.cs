@@ -6,5 +6,6 @@ public record PriceCalculationResult(
     decimal BaseShippingFee,
     decimal ShippingDiscount,
     decimal FinalShippingFee,
-    decimal FinalTotal
+    decimal FinalTotal,
+    IReadOnlyList<PricedLine> Lines
 );

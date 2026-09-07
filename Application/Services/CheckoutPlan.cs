@@ -5,6 +5,7 @@ public record CheckoutPlan(
     string CustomerPrincipalId,
     string? VoucherCode,
     IReadOnlyList<SagaReservation> Reservations,
+    IReadOnlyList<FlashSaleClaim> FlashSaleClaims,
     string MerchantPrincipalId,
     decimal TotalOrderAmount,
     decimal MerchantAmount,

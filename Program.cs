@@ -145,6 +145,7 @@ builder.Services.AddScoped<IPricingClient, PricingGrpcClient>();
 builder.Services.AddScoped<IShippingClient, ShippingGrpcClient>();
 builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<IVoucherQuotaClient, VoucherQuotaGrpcClient>();
+builder.Services.AddScoped<IFlashSaleClient, FlashSaleGrpcClient>();
 builder.Services.AddScoped<IStockClient, StockGrpcClient>();
 builder.Services.AddScoped<IEscrowClient, EscrowGrpcClient>();
 builder.Services.AddScoped<CheckoutSagaRunner>();

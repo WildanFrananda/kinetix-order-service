@@ -18,21 +18,32 @@ public class CheckoutSagaRunnerTests {
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options);
 
-    private static CheckoutPlan PlanWith(string? voucher, params string[] skus) => new(
+    private const string FlashSale = "7d2c1b90-4e35-4a1f-9c88-15b0e6a4f302";
+
+    private static CheckoutPlan PlanWith(
+        string? voucher, string[] skus, params FlashSaleClaim[] claims
+    ) => new(
         OrderNumber: "ORD-TEST-0001",
         CustomerPrincipalId: Customer,
         VoucherCode: voucher,
         Reservations: [.. skus.Select(sku => new SagaReservation(Merchant, sku, 1))],
+        FlashSaleClaims: claims,
         MerchantPrincipalId: Merchant,
         TotalOrderAmount: 120000m,
         MerchantAmount: 100000m,
         ShippingFeeAmount: 20000m);
 
-    private static (Mock<IVoucherQuotaClient>, Mock<IStockClient>, Mock<IEscrowClient>) AllAgreeing() {
+    private static (Mock<IVoucherQuotaClient>, Mock<IFlashSaleClient>, Mock<IStockClient>, Mock<IEscrowClient>) AllAgreeing() {
         var voucher = new Mock<IVoucherQuotaClient>();
         voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
         voucher.Setup(c => c.ReleaseVoucherAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(StepResult.Ok());
+
+        var flash = new Mock<IFlashSaleClient>();
+        flash.Setup(c => c.AllocateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(StepResult.Ok());
+        flash.Setup(c => c.ReleaseAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
 
         var stock = new Mock<IStockClient>();
@@ -48,19 +59,20 @@ public class CheckoutSagaRunnerTests {
         escrow.Setup(c => c.RefundHoldAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
 
-        return (voucher, stock, escrow);
+        return (voucher, flash, stock, escrow);
     }
 
     private static CheckoutSagaRunner Runner(
-        OrderDbContext db, Mock<IVoucherQuotaClient> v, Mock<IStockClient> s, Mock<IEscrowClient> e) =>
-        new(db, v.Object, s.Object, e.Object, NullLogger<CheckoutSagaRunner>.Instance);
+        OrderDbContext db, Mock<IVoucherQuotaClient> v, Mock<IFlashSaleClient> f,
+        Mock<IStockClient> s, Mock<IEscrowClient> e) =>
+        new(db, v.Object, f.Object, s.Object, e.Object, NullLogger<CheckoutSagaRunner>.Instance);
 
     [Fact]
     public async Task EverySucceedingStepLeavesTheSagaCompleted() {
         using var db = NewDbContext();
-        var (voucher, stock, escrow) = AllAgreeing();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
 
-        var outcome = await Runner(db, voucher, stock, escrow).RunAsync(PlanWith("SAVE10", "SKU-1", "SKU-2"));
+        var outcome = await Runner(db, voucher, flash, stock, escrow).RunAsync(PlanWith("SAVE10", ["SKU-1", "SKU-2"]));
 
         Assert.True(outcome.Succeeded);
         var saga = await db.CheckoutSagas.SingleAsync();
@@ -75,12 +87,12 @@ public class CheckoutSagaRunnerTests {
     [Fact]
     public async Task ARefusedStepGivesBackEverythingTakenBeforeIt() {
         using var db = NewDbContext();
-        var (voucher, stock, escrow) = AllAgreeing();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
 
         stock.Setup(c => c.ReserveStockAsync(It.IsAny<string>(), "SKU-2", It.IsAny<int>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Refused("no stock for SKU-2"));
 
-        var outcome = await Runner(db, voucher, stock, escrow).RunAsync(PlanWith("SAVE10", "SKU-1", "SKU-2"));
+        var outcome = await Runner(db, voucher, flash, stock, escrow).RunAsync(PlanWith("SAVE10", ["SKU-1", "SKU-2"]));
 
         Assert.False(outcome.Succeeded);
         Assert.Contains("SKU-2", outcome.FailureReason);
@@ -101,13 +113,13 @@ public class CheckoutSagaRunnerTests {
     [Fact]
     public async Task AnUnreachableServiceCompensatesTheStepsAlreadyTaken() {
         using var db = NewDbContext();
-        var (voucher, stock, escrow) = AllAgreeing();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
 
         escrow.Setup(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
             .ThrowsAsync(new InvalidOperationException("payment is unreachable"));
 
-        var outcome = await Runner(db, voucher, stock, escrow).RunAsync(PlanWith("SAVE10", "SKU-1"));
+        var outcome = await Runner(db, voucher, flash, stock, escrow).RunAsync(PlanWith("SAVE10", ["SKU-1"]));
 
         Assert.False(outcome.Succeeded);
         Assert.Equal(SagaState.Compensated, (await db.CheckoutSagas.SingleAsync()).State);
@@ -120,14 +132,14 @@ public class CheckoutSagaRunnerTests {
     [Fact]
     public async Task AFailedCompensationLeavesTheSagaStuckRatherThanClaimingItUnwound() {
         using var db = NewDbContext();
-        var (voucher, stock, escrow) = AllAgreeing();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
 
         stock.Setup(c => c.ReserveStockAsync(It.IsAny<string>(), "SKU-2", It.IsAny<int>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Refused("no stock for SKU-2"));
         stock.Setup(c => c.ReleaseStockAsync(It.IsAny<string>(), "SKU-1", It.IsAny<int>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Refused("warehouse refused the release"));
 
-        var outcome = await Runner(db, voucher, stock, escrow).RunAsync(PlanWith("SAVE10", "SKU-1", "SKU-2"));
+        var outcome = await Runner(db, voucher, flash, stock, escrow).RunAsync(PlanWith("SAVE10", ["SKU-1", "SKU-2"]));
 
         Assert.False(outcome.Succeeded);
         var saga = await db.CheckoutSagas.SingleAsync();
@@ -140,9 +152,9 @@ public class CheckoutSagaRunnerTests {
     [Fact]
     public async Task ACheckoutWithoutAVoucherNeverAsksPricingAboutOne() {
         using var db = NewDbContext();
-        var (voucher, stock, escrow) = AllAgreeing();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
 
-        var outcome = await Runner(db, voucher, stock, escrow).RunAsync(PlanWith(null, "SKU-1"));
+        var outcome = await Runner(db, voucher, flash, stock, escrow).RunAsync(PlanWith(null, ["SKU-1"]));
 
         Assert.True(outcome.Succeeded);
         voucher.Verify(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
@@ -150,9 +162,60 @@ public class CheckoutSagaRunnerTests {
     }
 
     [Fact]
+    public async Task FlashSaleStockIsClaimedBeforeTheShelfIsReserved() {
+        using var db = NewDbContext();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
+
+        var outcome = await Runner(db, voucher, flash, stock, escrow)
+            .RunAsync(PlanWith(null, ["SKU-1"], new FlashSaleClaim(FlashSale, "SKU-1", 2)));
+
+        Assert.True(outcome.Succeeded);
+        flash.Verify(c => c.AllocateAsync(FlashSale, "SKU-1", 2, "ORD-TEST-0001"), Times.Once);
+
+        var steps = await db.CheckoutSagaSteps.OrderBy(s => s.CreatedAt).ToListAsync();
+        Assert.Equal(SagaStepName.AllocateFlashSaleStock, steps[0].Name);
+        Assert.Equal(SagaStepName.ReserveStock, steps[1].Name);
+    }
+
+    [Fact]
+    public async Task AnExhaustedFlashSaleGivesBackTheVoucherAndTakesNoStock() {
+        using var db = NewDbContext();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
+
+        flash.Setup(c => c.AllocateAsync(FlashSale, It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(StepResult.Refused("this flash sale has not got that many units left"));
+
+        var outcome = await Runner(db, voucher, flash, stock, escrow)
+            .RunAsync(PlanWith("SAVE10", ["SKU-1"], new FlashSaleClaim(FlashSale, "SKU-1", 2)));
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(SagaState.Compensated, (await db.CheckoutSagas.SingleAsync()).State);
+
+        voucher.Verify(c => c.ReleaseVoucherAsync("SAVE10", "ORD-TEST-0001"), Times.Once);
+
+        stock.Verify(c => c.ReserveStockAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AllocatedFlashSaleStockIsReleasedWhenALaterStepRefuses() {
+        using var db = NewDbContext();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
+
+        stock.Setup(c => c.ReserveStockAsync(It.IsAny<string>(), "SKU-1", It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(StepResult.Refused("no stock for SKU-1"));
+
+        var outcome = await Runner(db, voucher, flash, stock, escrow)
+            .RunAsync(PlanWith(null, ["SKU-1"], new FlashSaleClaim(FlashSale, "SKU-1", 2)));
+
+        Assert.False(outcome.Succeeded);
+
+        flash.Verify(c => c.ReleaseAsync(FlashSale, "SKU-1", 2, "ORD-TEST-0001"), Times.Once);
+    }
+
+    [Fact]
     public async Task EachStepIsRecordedBeforeItIsAttempted() {
         using var db = NewDbContext();
-        var (voucher, stock, escrow) = AllAgreeing();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
 
         var stepExistedDuringTheCall = false;
         stock.Setup(c => c.ReserveStockAsync(It.IsAny<string>(), "SKU-1", It.IsAny<int>(), It.IsAny<string>()))
@@ -160,7 +223,7 @@ public class CheckoutSagaRunnerTests {
                 db.CheckoutSagaSteps.Any(s => s.Reference == "SKU-1" && s.State == SagaStepState.Attempting))
             .ReturnsAsync(StepResult.Ok());
 
-        await Runner(db, voucher, stock, escrow).RunAsync(PlanWith(null, "SKU-1"));
+        await Runner(db, voucher, flash, stock, escrow).RunAsync(PlanWith(null, ["SKU-1"]));
 
         Assert.True(stepExistedDuringTheCall);
     }

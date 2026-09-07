@@ -7,12 +7,14 @@ namespace Kinetix.OrderService.Application.Services;
 public class CheckoutSagaRunner(
     OrderDbContext dbContext,
     IVoucherQuotaClient voucherClient,
+    IFlashSaleClient flashSaleClient,
     IStockClient stockClient,
     IEscrowClient escrowClient,
     ILogger<CheckoutSagaRunner> logger
 ) {
     private readonly OrderDbContext _dbContext = dbContext;
     private readonly IVoucherQuotaClient _voucherClient = voucherClient;
+    private readonly IFlashSaleClient _flashSaleClient = flashSaleClient;
     private readonly IStockClient _stockClient = stockClient;
     private readonly IEscrowClient _escrowClient = escrowClient;
     private readonly ILogger<CheckoutSagaRunner> _logger = logger;
@@ -33,6 +35,16 @@ public class CheckoutSagaRunner(
                     plan.VoucherCode!, plan.OrderNumber, plan.CustomerPrincipalId);
                 if (!await Settle(step, result)) {
                     return await Compensate(saga, $"voucher: {result.Detail}");
+                }
+            }
+
+            foreach (var claim in plan.FlashSaleClaims) {
+                var step = await BeginStep(saga, SagaStepName.AllocateFlashSaleStock,
+                    claim.FlashSaleId, claim.Quantity, productId: claim.ProductId);
+                var result = await _flashSaleClient.AllocateAsync(
+                    claim.FlashSaleId, claim.ProductId, claim.Quantity, plan.OrderNumber);
+                if (!await Settle(step, result)) {
+                    return await Compensate(saga, $"flash sale {claim.FlashSaleId}: {result.Detail}");
                 }
             }
 
@@ -93,6 +105,9 @@ public class CheckoutSagaRunner(
                     SagaStepName.ReserveStock =>
                         await _stockClient.ReleaseStockAsync(
                             step.MerchantPrincipalId, step.Reference, step.Quantity, saga.OrderNumber),
+                    SagaStepName.AllocateFlashSaleStock =>
+                        await _flashSaleClient.ReleaseAsync(
+                            step.Reference, step.ProductId ?? string.Empty, step.Quantity, saga.OrderNumber),
                     SagaStepName.CreateEscrowHold =>
                         await _escrowClient.RefundHoldAsync(saga.OrderNumber, reason),
                     _ => StepResult.Refused($"no compensation is defined for {step.Name}"),
@@ -126,7 +141,7 @@ public class CheckoutSagaRunner(
 
     private async Task<CheckoutSagaStep> BeginStep(
         CheckoutSaga saga, SagaStepName name, string reference, int quantity,
-        string merchantPrincipalId = "") {
+        string merchantPrincipalId = "", string? productId = null) {
 
         var step = new CheckoutSagaStep {
             SagaId = saga.Id,
@@ -134,6 +149,7 @@ public class CheckoutSagaRunner(
             Reference = reference,
             Quantity = quantity,
             MerchantPrincipalId = merchantPrincipalId,
+            ProductId = productId,
             State = SagaStepState.Attempting,
         };
         _dbContext.CheckoutSagaSteps.Add(step);

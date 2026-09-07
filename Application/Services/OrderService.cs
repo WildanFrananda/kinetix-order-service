@@ -38,7 +38,11 @@ public class OrderService(
         string? appliedVoucher = request.VoucherCode ?? cart.AppliedVoucherCode;
         decimal baseShippingFee = request.BaseShippingFee;
 
-        var priceResult = await _pricingClient.CalculatePriceAsync(appliedVoucher, subtotal, baseShippingFee);
+        var priceLines = cart.Items
+            .Select(i => new PriceLine(i.ProductId, i.CategoryId, i.UnitPrice, i.Quantity))
+            .ToList();
+
+        var priceResult = await _pricingClient.CalculatePriceAsync(appliedVoucher, priceLines, baseShippingFee);
 
         string uniqueSuffix = Guid.NewGuid().ToString("N")[..8].ToUpper();
         string orderNumber = $"ORD-{DateTime.UtcNow:yyyyMMdd}-{uniqueSuffix}";
@@ -79,6 +83,9 @@ public class OrderService(
             VoucherCode: appliedVoucher,
             Reservations: [.. cart.Items.Select(item =>
                 new SagaReservation(item.MerchantPrincipalId ?? string.Empty, item.ProductId, item.Quantity))],
+            FlashSaleClaims: [.. priceResult.Lines
+                .Where(l => l.AppliedFlashSaleId is not null)
+                .Select(l => new FlashSaleClaim(l.AppliedFlashSaleId!, l.ProductId, l.Quantity))],
             MerchantPrincipalId: cart.Items.FirstOrDefault()?.MerchantPrincipalId ?? string.Empty,
             TotalOrderAmount: priceResult.FinalTotal,
             MerchantAmount: priceResult.Subtotal - priceResult.VoucherDiscount,
