@@ -6,11 +6,34 @@ using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.DTOs;
 using Kinetix.OrderService.Infrastructure.Persistence;
+using Microsoft.Extensions.Logging.Abstractions;
 using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
+using OrderApplicationService = Kinetix.OrderService.Application.Services.OrderService;
 
 namespace Kinetix.OrderService.Tests;
 
 public class OrderServiceTests {
+    private static OrderApplicationService NewOrderService(
+        OrderDbContext db, ICartService cart, IPricingClient pricing) {
+
+        var voucher = new Mock<IVoucherQuotaClient>();
+        voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(StepResult.Ok());
+
+        var stock = new Mock<IStockClient>();
+        stock.Setup(c => c.ReserveStockAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
+            .ReturnsAsync(StepResult.Ok());
+
+        var escrow = new Mock<IEscrowClient>();
+        escrow.Setup(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
+            .ReturnsAsync(StepResult.Ok());
+
+        var runner = new CheckoutSagaRunner(db, voucher.Object, stock.Object, escrow.Object,
+            NullLogger<CheckoutSagaRunner>.Instance);
+
+        return new OrderApplicationService(db, cart, pricing, runner);
+    }
     private static OrderDbContext GetInMemoryDbContext() {
         var options = new DbContextOptionsBuilder<OrderDbContext>()
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
@@ -40,7 +63,7 @@ public class OrderServiceTests {
         mockPricingClient.Setup(p => p.CalculatePriceAsync("DISCOUNT10", 200000m, 15000m))
             .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 15000m, 0m, 15000m, 195000m));
 
-        var orderService = new Application.Services.OrderService(dbContext, mockCartService.Object, mockPricingClient.Object);
+        var orderService = NewOrderService(dbContext, mockCartService.Object, mockPricingClient.Object);
         var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "DISCOUNT10", "KINETIX_INSTANT", 15000m, 5.2);
 
         // Act
@@ -79,7 +102,7 @@ public class OrderServiceTests {
         dbContext.Orders.Add(order);
         await dbContext.SaveChangesAsync();
 
-        var orderService = new Application.Services.OrderService(dbContext, mockCartService.Object, mockPricingClient.Object);
+        var orderService = NewOrderService(dbContext, mockCartService.Object, mockPricingClient.Object);
 
         // Act
         var result = await orderService.TransitionOrderStatusAsync(order.Id, OrderStatus.PAID);
@@ -106,7 +129,7 @@ public class OrderServiceTests {
         dbContext.Orders.Add(order);
         await dbContext.SaveChangesAsync();
 
-        var orderService = new Application.Services.OrderService(dbContext, mockCartService.Object, mockPricingClient.Object);
+        var orderService = NewOrderService(dbContext, mockCartService.Object, mockPricingClient.Object);
 
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(() =>

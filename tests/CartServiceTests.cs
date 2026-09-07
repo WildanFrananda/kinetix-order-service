@@ -23,7 +23,7 @@ public class CartServiceTests {
         _mockCache.Setup(c => c.GetAsync(It.IsAny<string>(), CancellationToken.None))
             .ReturnsAsync((byte[]?)null);
 
-        var request = new AddCartItemRequest("TSHIRT-BLK-M", "Kinetix Premium Shirt", 150000m, 2, "apparel");
+        var request = new AddCartItemRequest("TSHIRT-BLK-M", "Kinetix Premium Shirt", 150000m, 2, "apparel", "3aa957c8-b802-4d58-b9fc-f7b76ce60fa3");
 
         // Act
         var result = await _cartService.AddItemAsync(customerPrincipalId, request);
