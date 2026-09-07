@@ -76,7 +76,8 @@ HttpMessageHandler MeshHandler() => new SocketsHttpHandler {
 
 builder.Services.AddGrpcClient<PricingService.PricingServiceClient>(options => {
     options.Address = AsMesh(pricingGrpcUrl);
-}).ConfigurePrimaryHttpMessageHandler(MeshHandler);
+}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+  .AddInterceptor<RequestIdForwardingInterceptor>();
 
 var restPort = int.Parse(builder.Configuration["PORT"] ?? "8001");
 var grpcPort = int.Parse(builder.Configuration["GRPC_PORT"] ?? "50055");
@@ -100,18 +101,21 @@ var matchingGrpcUrl = builder.Configuration["MATCHING_GRPC_URL"] ?? "http://kine
 
 builder.Services.AddGrpcClient<Shipping.V1.ShippingService.ShippingServiceClient>(options => {
     options.Address = AsMesh(matchingGrpcUrl);
-}).ConfigurePrimaryHttpMessageHandler(MeshHandler);
+}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+  .AddInterceptor<RequestIdForwardingInterceptor>();
 
 var warehouseGrpcUrl = builder.Configuration["WAREHOUSE_GRPC_URL"] ?? "http://kinetix-warehouse-grpc:50051";
 var paymentGrpcUrl = builder.Configuration["PAYMENT_GRPC_URL"] ?? "http://kinetix-payment-service:50056";
 
 builder.Services.AddGrpcClient<Fulfillment.V1.BinStockService.BinStockServiceClient>(options => {
     options.Address = AsMesh(warehouseGrpcUrl);
-}).ConfigurePrimaryHttpMessageHandler(MeshHandler);
+}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+  .AddInterceptor<RequestIdForwardingInterceptor>();
 
 builder.Services.AddGrpcClient<Payment.V1.PaymentService.PaymentServiceClient>(options => {
     options.Address = AsMesh(paymentGrpcUrl);
-}).ConfigurePrimaryHttpMessageHandler(MeshHandler);
+}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+  .AddInterceptor<RequestIdForwardingInterceptor>();
 
 builder.Services.AddGrpc(options => {
     options.Interceptors.Add<PeerAuthorizationInterceptor>();
@@ -154,6 +158,10 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 
 builder.Services.AddHostedService<StuckSagaSweeper>();
 
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<RequestIdAccessor>();
+builder.Services.AddScoped<RequestIdForwardingInterceptor>();
+
 builder.Services.AddExceptionHandler<UnhandledExceptionHandler>();
 builder.Services.AddProblemDetails();
 
@@ -186,6 +194,8 @@ var app = builder.Build();
 
     app.Logger.LogInformation("gRPC listening on {Port} (mTLS)", grpcPort);
 }
+
+app.UseMiddleware<RequestIdMiddleware>();
 
 app.UseExceptionHandler();
 
