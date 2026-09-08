@@ -39,6 +39,16 @@ public class CheckoutSagaStep {
     [Column("detail")]
     public string? Detail { get; set; }
 
+    [Column("compensation_attempts")]
+    public int CompensationAttempts { get; set; }
+
+    [Column("last_failure_code")]
+    [MaxLength(40)]
+    public string? LastFailureCode { get; set; }
+
+    [Column("compensated_by_repeat")]
+    public bool CompensatedByRepeat { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

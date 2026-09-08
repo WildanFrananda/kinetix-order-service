@@ -1,5 +1,4 @@
 using Kinetix.OrderService.Application.Services;
-using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,15 +6,22 @@ namespace Kinetix.OrderService.Infrastructure.Background;
 
 public class StuckSagaSweeper(
     IServiceScopeFactory scopeFactory,
+    IConfiguration configuration,
     ILogger<StuckSagaSweeper> logger
 ) : BackgroundService {
+    private const int DefaultBatchSize = 20;
 
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
 
-    private static readonly TimeSpan Abandoned = TimeSpan.FromMinutes(5);
+    private const int UnattendedGraceSeconds = 5 * 60;
 
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
     private readonly ILogger<StuckSagaSweeper> _logger = logger;
+
+    private readonly int _batchSize =
+        int.TryParse(configuration["KINETIX_SAGA_SWEEP_BATCH"], out var batch) && batch > 0
+            ? batch
+            : DefaultBatchSize;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
         await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
@@ -36,35 +42,41 @@ public class StuckSagaSweeper(
     }
 
     private async Task SweepAsync(CancellationToken stoppingToken) {
-        using var scope = _scopeFactory.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
-        var runner = scope.ServiceProvider.GetRequiredService<CheckoutSagaRunner>();
+        List<Guid> due;
+        using (var scope = _scopeFactory.CreateScope()) {
+            var leaseStore = scope.ServiceProvider.GetRequiredService<ISagaLeaseStore>();
+            due = [.. await leaseStore.DueForSweepAsync(_batchSize, UnattendedGraceSeconds, stoppingToken)];
+        }
 
-        var cutoff = DateTime.UtcNow - Abandoned;
-
-        var abandoned = await dbContext.CheckoutSagas
-            .Include(s => s.Steps)
-            .Where(s => s.State == SagaState.Running || s.State == SagaState.Compensating)
-            .Where(s => s.UpdatedAt < cutoff)
-            .OrderBy(s => s.UpdatedAt)
-            .Take(20)
-            .ToListAsync(stoppingToken);
-
-        if (abandoned.Count == 0) {
+        if (due.Count == 0) {
             return;
         }
 
-        _logger.LogWarning(
-            "{Count} checkout saga(s) have been in flight since before {Cutoff:u}; unwinding them",
-            abandoned.Count, cutoff);
+        _logger.LogInformation(
+            "{Count} checkout saga(s) are due to be unwound or retried", due.Count
+        );
 
-        foreach (var saga in abandoned) {
+        foreach (var sagaId in due) {
             if (stoppingToken.IsCancellationRequested) {
                 return;
             }
 
-            await runner.Compensate(
-                saga, saga.FailureReason ?? "the checkout that started this saga never finished");
+            using var sagaScope = _scopeFactory.CreateScope();
+            var dbContext = sagaScope.ServiceProvider.GetRequiredService<OrderDbContext>();
+            var runner = sagaScope.ServiceProvider.GetRequiredService<CheckoutSagaRunner>();
+
+            var saga = await dbContext.CheckoutSagas
+                .FirstOrDefaultAsync(s => s.Id == sagaId, stoppingToken);
+            if (saga is null) {
+                continue;
+            }
+
+            await runner.CompensateAsync(
+                saga,
+                saga.FailureReason ?? "the checkout that started this saga never finished",
+                heldLease: null,
+                stoppingToken
+            );
         }
     }
 }

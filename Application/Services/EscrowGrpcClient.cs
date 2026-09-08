@@ -10,6 +10,8 @@ public class EscrowGrpcClient(
 ) : IEscrowClient {
     private const decimal MinorPerMajor = 100m;
 
+    private const string IdempotencyKeyPrefix = "order:";
+
     private readonly PaymentProto.PaymentService.PaymentServiceClient _client = client;
     private readonly ILogger<EscrowGrpcClient> _logger = logger;
 
@@ -22,9 +24,8 @@ public class EscrowGrpcClient(
         decimal merchantAmount,
         decimal shippingFeeAmount
     ) {
-
         try {
-            await _client.CreateEscrowHoldAsync(new PaymentProto.CreateEscrowHoldRequest {
+            var response = await _client.CreateEscrowHoldAsync(new PaymentProto.CreateEscrowHoldRequest {
                 OrderNumber = orderNumber,
                 CustomerPrincipalId = customerPrincipalId,
                 MerchantPrincipalId = merchantPrincipalId,
@@ -32,8 +33,10 @@ public class EscrowGrpcClient(
                 TotalOrderAmount = ToMoney(totalOrderAmount),
                 MerchantAmount = ToMoney(merchantAmount),
                 ShippingFeeAmount = ToMoney(shippingFeeAmount),
+                IdempotencyKey = KeyFor(orderNumber),
             });
-            return StepResult.Ok();
+
+            return response.AlreadyApplied ? StepResult.Repeat() : StepResult.Ok();
         } catch (RpcException e) when (
               e.StatusCode == StatusCode.FailedPrecondition
               || e.StatusCode == StatusCode.InvalidArgument
@@ -49,20 +52,47 @@ public class EscrowGrpcClient(
         var response = await _client.RefundEscrowAsync(new PaymentProto.RefundEscrowRequest {
             OrderNumber = orderNumber,
             Reason = reason,
+            IdempotencyKey = KeyFor(orderNumber),
         });
 
         if (response.Found) {
-            return StepResult.Ok();
+            return response.AlreadyApplied ? StepResult.Repeat() : StepResult.Ok();
         }
 
-        _logger.LogError(
-            "payment reported no escrow hold to refund for {Order} (reason: {Reason}). Either none "
-                + "was ever created, or one was created without its row. Check the customer's "
-                + "wallet ledger before assuming this order cost nothing",
-            orderNumber, reason);
+        _logger.LogWarning(
+            "payment reported no escrow hold to refund for {Order} (reason: {Reason}, "
+                + "already_applied: {AlreadyApplied})",
+            orderNumber, reason, response.AlreadyApplied
+        );
 
-        return StepResult.Refused("payment held nothing to refund for this order");
+        return StepResult.Absent(
+            response.AlreadyApplied, "payment held nothing to refund for this order"
+        );
     }
+
+    public async Task<EscrowStanding> GetStandingAsync(string orderNumber) {
+        var response = await _client.GetEscrowStatusAsync(new PaymentProto.GetEscrowStatusRequest {
+            OrderNumber = orderNumber,
+        });
+
+        return new EscrowStanding(
+            response.Found,
+            Map(response.Status),
+            response.TotalOrderAmount?.AmountMinor ?? 0,
+            response.TotalOrderAmount?.Currency ?? string.Empty);
+    }
+
+    private static IdempotencyKey KeyFor(string orderNumber) =>
+        new() { Key = IdempotencyKeyPrefix + orderNumber };
+
+    private static EscrowStandingStatus Map(PaymentProto.EscrowStatus status) => status switch {
+        PaymentProto.EscrowStatus.Held => EscrowStandingStatus.Held,
+        PaymentProto.EscrowStatus.Released => EscrowStandingStatus.Released,
+        PaymentProto.EscrowStatus.Refunded => EscrowStandingStatus.Refunded,
+        PaymentProto.EscrowStatus.Expired => EscrowStandingStatus.Expired,
+        PaymentProto.EscrowStatus.Failed => EscrowStandingStatus.Failed,
+        _ => EscrowStandingStatus.Unspecified,
+    };
 
     private static Money ToMoney(decimal amount) => new() {
         AmountMinor = (long)Math.Round(amount * MinorPerMajor, MidpointRounding.AwayFromZero),

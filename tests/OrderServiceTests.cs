@@ -1,7 +1,9 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 using Xunit;
 using Kinetix.OrderService.Application.Services;
+using Kinetix.OrderService.Infrastructure.Http;
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.DTOs;
@@ -33,7 +35,9 @@ public class OrderServiceTests {
                 It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
             .ReturnsAsync(StepResult.Ok());
 
+        var policy = new CompensationPolicy();
         var runner = new CheckoutSagaRunner(db, voucher.Object, flash.Object, stock.Object, escrow.Object,
+            new FakeSagaLeaseStore(db, policy), policy, new RequestIdAccessor(new HttpContextAccessor()),
             NullLogger<CheckoutSagaRunner>.Instance);
 
         return new OrderApplicationService(db, cart, pricing, runner);

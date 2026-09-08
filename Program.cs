@@ -153,6 +153,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+            RoleClaimType = "role",
         };
     });
 
@@ -160,7 +161,10 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
     .Configure<JwksKeyProvider>((options, jwks) => {
         options.TokenValidationParameters.IssuerSigningKeyResolver = jwks.Resolve;
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy(Kinetix.OrderService.Controllers.SagaAdminController.SagaOperatorPolicy, policy =>
+        policy.RequireAuthenticatedUser().RequireRole("operator", "admin")
+);
 
 builder.Services.AddScoped<IPricingClient, PricingGrpcClient>();
 builder.Services.AddScoped<IShippingClient, ShippingGrpcClient>();
@@ -169,6 +173,11 @@ builder.Services.AddScoped<IVoucherQuotaClient, VoucherQuotaGrpcClient>();
 builder.Services.AddScoped<IFlashSaleClient, FlashSaleGrpcClient>();
 builder.Services.AddScoped<IStockClient, StockGrpcClient>();
 builder.Services.AddScoped<IEscrowClient, EscrowGrpcClient>();
+
+builder.Services.AddSingleton<SagaWorkerIdentity>();
+builder.Services.AddSingleton(CompensationPolicy.FromConfiguration(builder.Configuration));
+builder.Services.AddScoped<ISagaLeaseStore, SagaLeaseStore>();
+
 builder.Services.AddScoped<CheckoutSagaRunner>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 
@@ -186,7 +195,8 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-var app = builder.Build(); {
+var app = builder.Build();
+{
     var jwks = app.Services.GetRequiredService<JwksKeyProvider>();
     const int attempts = 5;
     for (var attempt = 1; attempt <= attempts; attempt++) {
@@ -198,12 +208,14 @@ var app = builder.Build(); {
             var delay = TimeSpan.FromSeconds(attempt * 2);
             app.Logger.LogWarning(
                 "identity's JWKS is not answering yet ({Message}); retrying in {Delay}s ({Attempt}/{Attempts})",
-                ex.Message, delay.TotalSeconds, attempt, attempts);
+                ex.Message, delay.TotalSeconds, attempt, attempts
+            );
             await Task.Delay(delay);
         } catch (Exception ex) {
             app.Logger.LogError(
                 ex, "identity's JWKS did not answer in {Attempts} attempts; starting without keys, "
-                  + "which means the first authenticated request will fetch them", attempts);
+                  + "which means the first authenticated request will fetch them", attempts
+            );
         }
     }
 

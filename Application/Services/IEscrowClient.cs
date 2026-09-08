@@ -12,4 +12,6 @@ public interface IEscrowClient {
     );
 
     Task<StepResult> RefundHoldAsync(string orderNumber, string reason);
+
+    Task<EscrowStanding> GetStandingAsync(string orderNumber);
 }

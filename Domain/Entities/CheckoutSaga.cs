@@ -27,6 +27,29 @@ public class CheckoutSaga {
     [Column("compensation_attempts")]
     public int CompensationAttempts { get; set; }
 
+    [Column("lease_owner")]
+    public string? LeaseOwner { get; set; }
+
+    [Column("lease_expires_at")]
+    public DateTime? LeaseExpiresAt { get; set; }
+
+    [Column("next_attempt_at")]
+    public DateTime? NextAttemptAt { get; set; }
+
+    [Column("abandoned_at")]
+    public DateTime? AbandonedAt { get; set; }
+
+    [Column("needs_attention_at")]
+    public DateTime? NeedsAttentionAt { get; set; }
+
+    [Column("last_failure_code")]
+    [MaxLength(40)]
+    public string? LastFailureCode { get; set; }
+
+    [Required]
+    [Column("correlation_id")]
+    public string CorrelationId { get; set; } = string.Empty;
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

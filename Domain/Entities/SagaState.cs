@@ -6,4 +6,5 @@ public enum SagaState {
     Compensating,
     Compensated,
     Stuck,
+    Abandoned,
 }
