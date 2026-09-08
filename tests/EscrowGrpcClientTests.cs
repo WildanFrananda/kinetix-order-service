@@ -112,4 +112,44 @@ public class EscrowGrpcClientTests {
         Assert.False(result.Success);
         Assert.Contains("wallet", result.Detail);
     }
+
+    [Fact]
+    public async Task AnAmountThatCannotBeChargedExactlyIsRefusedRatherThanRounded() {
+        var payment = new Mock<PaymentProto.PaymentService.PaymentServiceClient>();
+
+        var result = await ClientOver(payment).CreateHoldAsync(
+            "ORD-KEY-0005", Customer, Merchant, null, 209000.004m, 200000m, 9000.004m
+        );
+
+        Assert.False(result.Success);
+        Assert.Contains("9000.004", result.Detail);
+
+        payment.Verify(c => c.CreateEscrowHoldAsync(
+            It.IsAny<PaymentProto.CreateEscrowHoldRequest>(), It.IsAny<Metadata>(),
+            It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Never
+        );
+    }
+
+    [Fact]
+    public async Task AnExactMinorUnitAmountStillCrossesUnchanged() {
+        var payment = new Mock<PaymentProto.PaymentService.PaymentServiceClient>();
+        PaymentProto.CreateEscrowHoldRequest? sent = null;
+
+        payment.Setup(c => c.CreateEscrowHoldAsync(
+            It.IsAny<PaymentProto.CreateEscrowHoldRequest>(), It.IsAny<Metadata>(),
+            It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()
+        )).Returns((PaymentProto.CreateEscrowHoldRequest request, Metadata _, DateTime? __, CancellationToken ___) => {
+            sent = request;
+            return Answer(new PaymentProto.EscrowHoldResponse { Found = true, AlreadyApplied = false });
+        });
+
+        var result = await ClientOver(payment).CreateHoldAsync(
+            "ORD-KEY-0006", Customer, Merchant, null, 209000.55m, 200000m, 9000.55m
+        );
+
+        Assert.True(result.Success);
+        Assert.NotNull(sent);
+        Assert.Equal(20900055, sent!.TotalOrderAmount.AmountMinor);
+        Assert.Equal(900055, sent.ShippingFeeAmount.AmountMinor);
+    }
 }

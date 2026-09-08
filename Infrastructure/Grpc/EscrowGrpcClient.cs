@@ -1,3 +1,4 @@
+using System.Globalization;
 using Common.V1;
 using Grpc.Core;
 using Kinetix.OrderService.Application.Checkout;
@@ -26,6 +27,26 @@ public class EscrowGrpcClient(
         decimal merchantAmount,
         decimal shippingFeeAmount
     ) {
+        var inexact = new (string Field, decimal Amount)[] {
+            ("total", totalOrderAmount), ("merchant", merchantAmount), ("shipping", shippingFeeAmount),
+        }.Where(a => !IsWholeMinorUnits(a.Amount)).ToList();
+
+        if (inexact.Count > 0) {
+            var detail = string.Join(", ", inexact.Select(
+                a => $"{a.Field} {a.Amount.ToString(CultureInfo.InvariantCulture)}"
+            ));
+
+            _logger.LogError(
+                "refusing the escrow hold for {Order}: {Detail} cannot be expressed in whole minor "
+              + "units, so the amount debited would differ from the amount on the order row",
+                orderNumber, detail
+            );
+
+            return StepResult.Refused(
+                $"an amount on this order cannot be charged exactly ({detail}); nothing was debited"
+            );
+        }
+
         try {
             var response = await _client.CreateEscrowHoldAsync(new PaymentProto.CreateEscrowHoldRequest {
                 OrderNumber = orderNumber,
@@ -42,7 +63,7 @@ public class EscrowGrpcClient(
         } catch (RpcException e) when (
               e.StatusCode == StatusCode.FailedPrecondition
               || e.StatusCode == StatusCode.InvalidArgument
-          ) {
+        ) {
             return StepResult.Refused(e.Status.Detail);
         } catch (RpcException e) {
             _logger.LogError(e, "payment did not answer CreateEscrowHold for {Order}", orderNumber);
@@ -81,7 +102,8 @@ public class EscrowGrpcClient(
             response.Found,
             Map(response.Status),
             response.TotalOrderAmount?.AmountMinor ?? 0,
-            response.TotalOrderAmount?.Currency ?? string.Empty);
+            response.TotalOrderAmount?.Currency ?? string.Empty
+        );
     }
 
     private static IdempotencyKey KeyFor(string orderNumber) =>
@@ -96,8 +118,11 @@ public class EscrowGrpcClient(
         _ => EscrowStandingStatus.Unspecified,
     };
 
+    private static bool IsWholeMinorUnits(decimal amount) =>
+        amount * MinorPerMajor == decimal.Truncate(amount * MinorPerMajor);
+
     private static Money ToMoney(decimal amount) => new() {
-        AmountMinor = (long)Math.Round(amount * MinorPerMajor, MidpointRounding.AwayFromZero),
+        AmountMinor = decimal.ToInt64(amount * MinorPerMajor),
         Currency = "IDR",
     };
 }

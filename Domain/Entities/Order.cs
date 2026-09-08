@@ -57,6 +57,10 @@ public class Order {
     public double DistanceKm { get; set; }
 
     [Required]
+    [Column("shipping_quote_basis")]
+    public ShippingQuoteBasis ShippingQuoteBasis { get; set; } = ShippingQuoteBasis.CLIENT_SUPPLIED;
+
+    [Required]
     [MaxLength(500)]
     [Column("shipping_address")]
     public string ShippingAddress { get; set; } = string.Empty;

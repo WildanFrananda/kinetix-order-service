@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Exceptions;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Enums;
@@ -37,6 +38,52 @@ public class OrderController(IOrderService orderService) : ControllerBase {
                 error = "PRICING_UNAVAILABLE",
                 message = "prices cannot be confirmed right now, so this order was not placed. "
                         + "Nothing has been charged or reserved — please try again shortly.",
+            });
+        } catch (ShippingUnavailableException) {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
+                error = "SHIPPING_UNAVAILABLE",
+                message = "shipping cannot be quoted right now, so this order was not placed. "
+                        + "Nothing has been charged or reserved — please try again shortly.",
+            });
+        } catch (ShippingQuoteMalformedException) {
+            return StatusCode(StatusCodes.Status502BadGateway, new {
+                error = "SHIPPING_QUOTE_MALFORMED",
+                message = "shipping could not be quoted for this order — the courier service "
+                        + "answered with something this service cannot read — so this order was "
+                        + "not placed. Nothing has been charged or reserved. This is a fault on "
+                        + "our side and it has been logged; trying again is unlikely to help.",
+            });
+        } catch (ShippingNotServiceableException ex) {
+            return UnprocessableEntity(new {
+                error = "SHIPPING_NO_SERVICE",
+                message = "no courier tier can carry this order, so it was not placed. Nothing has "
+                        + "been charged or reserved.",
+                rateCardReasons = ex.Reasons,
+                basis = ShippingRateCardProbe.AvailabilityBasis,
+            });
+        } catch (ShippingTierNotEstablishedException ex) {
+            return UnprocessableEntity(new {
+                error = "SHIPPING_TIER_NOT_ESTABLISHED",
+                message = $"'{ex.RequestedTier}' could not be confirmed for this order, so it was "
+                        + "not placed. Nothing has been charged or reserved. Choose one of the "
+                        + "tiers listed, or leave the tier out to take the cheapest available.",
+                requestedTier = ex.RequestedTier,
+                availableTiers = ex.AvailableTiers,
+                rateCardReason = ex.RateCardReason,
+                basis = ShippingRateCardProbe.AvailabilityBasis,
+            });
+        } catch (ShippingTierUnknownException ex) {
+            return BadRequest(new {
+                error = "SHIPPING_TIER_UNKNOWN",
+                message = $"'{ex.RequestedTier}' is not a service tier the courier service offers.",
+                requestedTier = ex.RequestedTier,
+                availableTiers = ex.AvailableTiers,
+            });
+        } catch (ShippingFeeContradictedException) {
+            return StatusCode(StatusCodes.Status502BadGateway, new {
+                error = "SHIPPING_FEE_CONTRADICTED",
+                message = "the shipping fee could not be confirmed against the courier quote, so "
+                        + "this order was not placed. Nothing has been charged or reserved.",
             });
         } catch (CheckoutFailedException ex) {
             return Conflict(new {

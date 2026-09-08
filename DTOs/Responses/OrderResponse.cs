@@ -15,6 +15,7 @@ public record OrderResponse(
     decimal ShippingDiscount,
     decimal FinalShippingFee,
     double DistanceKm,
+    string ShippingQuoteBasis,
     DateTime CreatedAt,
     List<OrderItemResponse> Items
 );

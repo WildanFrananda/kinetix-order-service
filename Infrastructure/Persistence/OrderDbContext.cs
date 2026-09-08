@@ -18,11 +18,15 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
         modelBuilder.Entity<OrderEntity>(entity => {
             entity.HasIndex(e => e.OrderNumber).IsUnique();
             entity.HasIndex(e => e.CustomerPrincipalId);
-            entity.HasIndex(e => e.IdempotencyKey).IsUnique();
+            entity.HasIndex(e => new { e.CustomerPrincipalId, e.IdempotencyKey }).IsUnique();
 
             entity.Property(e => e.Status)
                 .HasConversion<string>()
                 .HasMaxLength(30);
+
+            entity.Property(e => e.ShippingQuoteBasis)
+                .HasConversion<string>()
+                .HasMaxLength(20);
         });
 
         modelBuilder.Entity<CheckoutSaga>(entity => {
