@@ -6,6 +6,8 @@ namespace Kinetix.OrderService.Domain.Entities;
 
 [Table("orders")]
 public class Order {
+    public const int ServiceTierMaxLength = 50;
+
     [Key]
     [Column("id")]
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -40,7 +42,7 @@ public class Order {
     public decimal FinalTotal { get; set; }
 
     [Required]
-    [MaxLength(50)]
+    [MaxLength(ServiceTierMaxLength)]
     [Column("shipping_service_tier")]
     public string ShippingServiceTier { get; set; } = "KINETIX_REGULAR";
 

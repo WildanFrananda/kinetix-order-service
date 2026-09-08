@@ -268,7 +268,7 @@ public class OrderServiceTests {
     }
 
     [Fact]
-    public async Task CheckoutAsync_WhenNoTierIsAvailable_RefusesRatherThanPricingAtZero() {
+    public async Task CheckoutAsync_WhenEveryTierComesBackUnavailable_IsAFaultNotAVerdictAboutThisDelivery() {
         using var dbContext = GetInMemoryDbContext();
         var escrow = AcceptingEscrow();
 
@@ -289,7 +289,7 @@ public class OrderServiceTests {
             escrow.Object
         );
 
-        var refusal = await Assert.ThrowsAsync<ShippingNotServiceableException>(() =>
+        var refusal = await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(
                 Customer,
                 new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null),
@@ -297,7 +297,8 @@ public class OrderServiceTests {
             )
         );
 
-        Assert.Contains("KINETIX_REGULAR: Distance exceeds 500km limit", refusal.Reasons);
+        Assert.Contains("KINETIX_REGULAR: Distance exceeds 500km limit", refusal.Fault);
+        Assert.Contains("0 km", refusal.Fault);
         Assert.Empty(dbContext.Orders);
         escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()
@@ -398,7 +399,7 @@ public class OrderServiceTests {
     }
 
     [Fact]
-    public async Task CheckoutAsync_WithATierRequested_IsUnaffectedByAnUnreadableOptionItDidNotAskFor() {
+    public async Task CheckoutAsync_WithATierRequested_RefusesAnUnreadableOptionItDidNotAskFor() {
         using var dbContext = GetInMemoryDbContext();
         var escrow = AcceptingEscrow();
 
@@ -416,15 +417,45 @@ public class OrderServiceTests {
             escrow.Object
         );
 
-        var result = await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_REGULAR"),
-            "IDEMP-KEY-UNAFFECTED"
+        var refusal = await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_REGULAR"),
+                "IDEMP-KEY-UNAFFECTED"
+            )
         );
 
-        Assert.Equal(9000m, result.BaseShippingFee);
+        Assert.Contains("KINETIX_DRONE", refusal.Fault);
+        Assert.Empty(dbContext.Orders);
         escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), 9000m
-        ), Times.Once);
+            It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()
+        ), Times.Never);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_BothSelectionPathsCallAnUnreadableOptionTheSameThing() {
+        var oneUnreadable = new EstimateShippingResult(0.0, [
+            new ShippingOptionResult("KINETIX_REGULAR", "Kinetix Regular Freight", 0.0, 9000m,
+                "1 - 3 Hari", true, null),
+            new ShippingOptionResult("KINETIX_DRONE", "Kinetix Drone", 0.0, null, "1 Jam", true, null),
+        ]);
+
+        async Task<Exception?> Outcome(string? requestedTier) {
+            using var dbContext = GetInMemoryDbContext();
+            var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+                PricingPassingShippingThrough().Object, ShippingReturning(oneUnreadable).Object);
+
+            return await Record.ExceptionAsync(() => orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, requestedTier),
+                $"IDEMP-KEY-DOORS-{requestedTier ?? "NONE"}"
+            ));
+        }
+
+        var cheapestPath = await Outcome(null);
+        var namedPath = await Outcome("KINETIX_REGULAR");
+
+        Assert.NotNull(cheapestPath);
+        Assert.NotNull(namedPath);
+        Assert.Equal(cheapestPath.GetType(), namedPath.GetType());
     }
 
     [Fact]
@@ -451,14 +482,14 @@ public class OrderServiceTests {
     }
 
     [Fact]
-    public async Task CheckoutAsync_WhenATierAppearsTwice_TakesTheCheaperRatherThanTheFirstListed() {
+    public async Task CheckoutAsync_WhenATierAppearsTwice_RefusesRatherThanPickingWhichFeeIsThePrice() {
         using var dbContext = GetInMemoryDbContext();
         var escrow = AcceptingEscrow();
 
         var duplicated = new EstimateShippingResult(0.0, [
             new ShippingOptionResult("KINETIX_REGULAR", "Kinetix Regular Freight", 0.0, 9000m,
                 "1 - 3 Hari", true, null),
-            new ShippingOptionResult("KINETIX_REGULAR", "Kinetix Regular Freight", 0.0, 7000m,
+            new ShippingOptionResult("KINETIX_REGULAR", "Kinetix Regular Freight", 0.0, 1m,
                 "1 - 3 Hari", true, null),
         ]);
 
@@ -466,15 +497,121 @@ public class OrderServiceTests {
             PricingPassingShippingThrough().Object, ShippingReturning(duplicated).Object, escrow.Object
         );
 
-        var result = await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_REGULAR"),
-            "IDEMP-KEY-DUPLICATE"
+        var refusal = await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_REGULAR"),
+                "IDEMP-KEY-DUPLICATE"
+            )
         );
 
-        Assert.Equal(7000m, result.BaseShippingFee);
+        Assert.Contains("KINETIX_REGULAR", refusal.Fault);
+        Assert.Empty(dbContext.Orders);
         escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), 7000m
-        ), Times.Once);
+            It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()
+        ), Times.Never);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenATierAppearsTwice_RefusesOnTheCheapestPathToo() {
+        using var dbContext = GetInMemoryDbContext();
+
+        var duplicated = new EstimateShippingResult(0.0, [
+            new ShippingOptionResult("KINETIX_REGULAR", "Kinetix Regular Freight", 0.0, 9000m,
+                "1 - 3 Hari", true, null),
+            new ShippingOptionResult("KINETIX_REGULAR", "Kinetix Regular Freight", 0.0, 1m,
+                "1 - 3 Hari", true, null),
+        ]);
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, ShippingReturning(duplicated).Object
+        );
+
+        await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-DUPLICATE-CHEAPEST"
+            )
+        );
+
+        Assert.Empty(dbContext.Orders);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenAnOptionCarriesNoServiceTier_RefusesRatherThanSellingABlankTier() {
+        using var dbContext = GetInMemoryDbContext();
+        var escrow = AcceptingEscrow();
+
+        var blankTier = new EstimateShippingResult(0.0, [
+            new ShippingOptionResult("", "", 0.0, 1m, "", true, null),
+            new ShippingOptionResult("KINETIX_REGULAR", "Kinetix Regular Freight", 0.0, 9000m,
+                "1 - 3 Hari", true, null),
+        ]);
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, ShippingReturning(blankTier).Object, escrow.Object
+        );
+
+        await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-BLANKTIER"
+            )
+        );
+
+        Assert.Empty(dbContext.Orders);
+        escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()
+        ), Times.Never);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenAServiceTierIsLongerThanTheColumn_RefusesBeforeTheInsertCanFail() {
+        using var dbContext = GetInMemoryDbContext();
+
+        string overlongTier = new('K', OrderEntity.ServiceTierMaxLength + 1);
+
+        var tooLong = new EstimateShippingResult(0.0, [
+            new ShippingOptionResult(overlongTier, "Kinetix Regular Freight", 0.0, 9000m,
+                "1 - 3 Hari", true, null),
+        ]);
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, ShippingReturning(tooLong).Object
+        );
+
+        await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-LONGTIER"
+            )
+        );
+
+        Assert.Empty(dbContext.Orders);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenAnOptionIsAvailableAndSaysWhyItIsNot_RefusesTheContradiction() {
+        using var dbContext = GetInMemoryDbContext();
+        var escrow = AcceptingEscrow();
+
+        var contradictory = new EstimateShippingResult(0.0, [
+            new ShippingOptionResult("KINETIX_INSTANT", "Kinetix Express Instant", 0.0, 15000m,
+                "1 - 2 Jam", true, "Distance exceeds 15km limit"),
+        ]);
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, ShippingReturning(contradictory).Object, escrow.Object
+        );
+
+        var refusal = await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_INSTANT"),
+                "IDEMP-KEY-CONTRADICTORY"
+            )
+        );
+
+        Assert.Contains("KINETIX_INSTANT", refusal.Fault);
+        Assert.Empty(dbContext.Orders);
+        escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()
+        ), Times.Never);
     }
 
     [Fact]
@@ -498,7 +635,7 @@ public class OrderServiceTests {
             PricingPassingShippingThrough().Object, shipping.Object, escrow.Object
         );
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<CartItemsHaveNoMerchantException>(() =>
             orderService.CheckoutAsync(Customer,
                 new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-NOMERCHANT"
             )
@@ -729,5 +866,169 @@ public class OrderServiceTests {
         var result = await orderService.GetOrderByIdAsync(order.Id);
 
         Assert.Equal("CLIENT_SUPPLIED", result!.ShippingQuoteBasis);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenTheSelectedOptionCarriesARealDistance_RecordsDistanceQuoted() {
+        using var dbContext = GetInMemoryDbContext();
+
+        var priced = new EstimateShippingResult(660.0, [
+            new ShippingOptionResult("KINETIX_REGULAR", "Kinetix Regular Freight", 660.0, 58500m,
+                "1 - 3 Hari", true, null),
+        ]);
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, ShippingReturning(priced).Object);
+
+        var result = await orderService.CheckoutAsync(Customer,
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-DISTANCEQUOTED");
+
+        Assert.Equal(660.0, result.DistanceKm);
+        Assert.Equal(58500m, result.BaseShippingFee);
+        Assert.Equal("DISTANCE_QUOTED", result.ShippingQuoteBasis);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_ReadsTheBasisFromTheDistanceItRecords_NotTheResponseEnvelope() {
+        using var dbContext = GetInMemoryDbContext();
+
+        var envelopeDisagrees = new EstimateShippingResult(0.0, [
+            new ShippingOptionResult("KINETIX_REGULAR", "Kinetix Regular Freight", 660.0, 58500m,
+                "1 - 3 Hari", true, null),
+        ]);
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, ShippingReturning(envelopeDisagrees).Object);
+
+        var result = await orderService.CheckoutAsync(Customer,
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-ENVELOPE");
+
+        Assert.Equal(660.0, result.DistanceKm);
+        Assert.Equal("DISTANCE_QUOTED", result.ShippingQuoteBasis);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenTheQuoteIsTheProbeFloor_StillRecordsTierFloor() {
+        using var dbContext = GetInMemoryDbContext();
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, ShippingReturning(RateCardFloor()).Object);
+
+        var result = await orderService.CheckoutAsync(Customer,
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-STILLFLOOR");
+
+        Assert.Equal(0.0, result.DistanceKm);
+        Assert.Equal("TIER_FLOOR", result.ShippingQuoteBasis);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenPricingsTotalIsNotTheMerchantPlusTheShipping_RefusesBeforeCharging() {
+        using var dbContext = GetInMemoryDbContext();
+        var escrow = AcceptingEscrow();
+
+        var pricing = new Mock<IPricingClient>();
+        pricing.Setup(p => p.CalculatePriceAsync(
+                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<decimal>()))
+            .ReturnsAsync(new PriceCalculationResult(200000m, 0m, 9000m, 0m, 9000m, 1m, []));
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
+            ShippingReturning(RateCardFloor()).Object, escrow.Object);
+
+        await Assert.ThrowsAsync<OrderAmountsUnchargeableException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-TOTALGAP"));
+
+        Assert.Empty(dbContext.Orders);
+        Assert.Empty(dbContext.CheckoutSagas);
+        escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()
+        ), Times.Never);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenTheVoucherDiscountExceedsTheSubtotal_RefusesBeforeCharging() {
+        using var dbContext = GetInMemoryDbContext();
+        var escrow = AcceptingEscrow();
+
+        var pricing = new Mock<IPricingClient>();
+        pricing.Setup(p => p.CalculatePriceAsync(
+                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<decimal>()))
+            .ReturnsAsync(new PriceCalculationResult(200000m, 300000m, 9000m, 0m, 9000m, -91000m, []));
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
+            ShippingReturning(RateCardFloor()).Object, escrow.Object);
+
+        await Assert.ThrowsAsync<OrderAmountsUnchargeableException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-OVERDISCOUNT"));
+
+        Assert.Empty(dbContext.Orders);
+        escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()
+        ), Times.Never);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenAnAmountCannotBeChargedInWholeMinorUnits_RefusesWithoutWritingAnOrder() {
+        using var dbContext = GetInMemoryDbContext();
+        var escrow = AcceptingEscrow();
+
+        var pricing = new Mock<IPricingClient>();
+        pricing.Setup(p => p.CalculatePriceAsync(
+                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<decimal>()))
+            .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 9000m, 0.996m, 8999.004m,
+                188999.004m, []));
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
+            ShippingReturning(RateCardFloor()).Object, escrow.Object);
+
+        await Assert.ThrowsAsync<OrderAmountsUnchargeableException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-SUBMINOR"));
+
+        Assert.Empty(dbContext.Orders);
+        Assert.Empty(dbContext.CheckoutSagas);
+        escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()
+        ), Times.Never);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_AnEmptyCartAndACartWithNoMerchantAreNotTheSameFailure() {
+        static Mock<ICartService> CartWithNoMerchant() {
+            var cartService = new Mock<ICartService>();
+            var cart = new CustomerCart(Customer);
+            cart.Items.Add(new CartItem {
+                ProductId = "PRODUCT-01",
+                ProductTitle = "Sample Product",
+                UnitPrice = 100000m,
+                Quantity = 2,
+                MerchantPrincipalId = null
+            });
+            cartService.Setup(s => s.GetCartAsync(Customer)).ReturnsAsync(cart);
+            return cartService;
+        }
+
+        static Mock<ICartService> EmptyCart() {
+            var cartService = new Mock<ICartService>();
+            cartService.Setup(s => s.GetCartAsync(Customer)).ReturnsAsync(new CustomerCart(Customer));
+            return cartService;
+        }
+
+        async Task<Exception?> Outcome(ICartService cart, string key) {
+            using var dbContext = GetInMemoryDbContext();
+            var orderService = NewOrderService(dbContext, cart,
+                PricingPassingShippingThrough().Object, ShippingReturning(RateCardFloor()).Object);
+
+            return await Record.ExceptionAsync(() => orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), key));
+        }
+
+        var empty = await Outcome(EmptyCart().Object, "IDEMP-KEY-EMPTYCART");
+        var merchantless = await Outcome(CartWithNoMerchant().Object, "IDEMP-KEY-NOMERCHANT-2");
+
+        Assert.NotNull(empty);
+        Assert.NotNull(merchantless);
+        Assert.NotEqual(empty.GetType(), merchantless.GetType());
     }
 }

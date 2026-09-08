@@ -74,19 +74,49 @@ public class OrderControllerTests {
     }
 
     [Fact]
-    public async Task ARealRefusalIs422AndLabelsMatchingsReasonsAsTheRateCards() {
-        var refusal = await CheckoutRefusal(new ShippingNotServiceableException([
-            "KINETIX_REGULAR: Distance exceeds 500km limit",
-        ]));
+    public async Task AnEveryTierUnavailableAnswerIsAFaultAndMakesNoCourierClaim() {
+        var refusal = await CheckoutRefusal(new ShippingQuoteMalformedException(
+            "every tier came back unavailable (KINETIX_REGULAR: Distance exceeds 500km limit), and "
+          + "this quote was asked at 0 km and 0 g"
+        ));
 
-        Assert.Equal(StatusCodes.Status422UnprocessableEntity, refusal.StatusCode);
-        Assert.Equal("SHIPPING_NO_SERVICE", Text(refusal.Value!, "error"));
-        Assert.DoesNotContain("address", Text(refusal.Value!, "message"), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(StatusCodes.Status502BadGateway, refusal.StatusCode);
+        Assert.Equal("SHIPPING_QUOTE_MALFORMED", Text(refusal.Value!, "error"));
 
-        Assert.Contains("KINETIX_REGULAR: Distance exceeds 500km limit",
-            List(refusal.Value!, "rateCardReasons")
-        );
-        Assert.Contains("0 km and 0 kg", Text(refusal.Value!, "basis"));
+        var message = Text(refusal.Value!, "message");
+        Assert.DoesNotContain("no courier", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("cannot carry", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("can carry", message, StringComparison.OrdinalIgnoreCase);
+
+        Assert.DoesNotContain("Distance exceeds 500km limit", message);
+        Assert.False(Has(refusal.Value!, "rateCardReasons"));
+    }
+
+    [Fact]
+    public async Task AnUnchargeableSetOfAmountsIs502AndKeepsTheArithmeticOutOfTheBody() {
+        var refusal = await CheckoutRefusal(new OrderAmountsUnchargeableException(
+            "the total to escrow (1) is not what that escrow would split into"
+        ));
+
+        Assert.Equal(StatusCodes.Status502BadGateway, refusal.StatusCode);
+        Assert.Equal("ORDER_AMOUNTS_UNCHARGEABLE", Text(refusal.Value!, "error"));
+
+        var message = Text(refusal.Value!, "message");
+        Assert.Contains("fault on our side", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("split into", message);
+    }
+
+    [Fact]
+    public async Task AnEmptyCartAndAMerchantlessCartDoNotShareAnErrorCode() {
+        var empty = await CheckoutRefusal(new EmptyCartException());
+        var merchantless = await CheckoutRefusal(new CartItemsHaveNoMerchantException());
+
+        Assert.Equal(StatusCodes.Status400BadRequest, empty.StatusCode);
+        Assert.Equal(StatusCodes.Status400BadRequest, merchantless.StatusCode);
+
+        Assert.Equal("CART_EMPTY", Text(empty.Value!, "error"));
+        Assert.Equal("CART_ITEMS_HAVE_NO_MERCHANT", Text(merchantless.Value!, "error"));
+        Assert.Contains("no merchant", Text(merchantless.Value!, "message"));
     }
 
     [Fact]
@@ -129,14 +159,18 @@ public class OrderControllerTests {
     }
 
     [Fact]
-    public async Task NoTwoShippingFailuresRenderTheSameWay() {
+    public async Task NoTwoCheckoutFailuresRenderTheSameWay() {
         var refusals = new Exception[] {
+            new PricingUnavailableException(new RpcException(new Status(StatusCode.Unavailable, "no route"))),
             new ShippingUnavailableException(new RpcException(new Status(StatusCode.Unavailable, "no route"))),
             new ShippingQuoteMalformedException("the response carried no courier options at all"),
-            new ShippingNotServiceableException(["KINETIX_REGULAR: Distance exceeds 500km limit"]),
             new ShippingTierNotEstablishedException("KINETIX_CARGO", "Cargo is reserved for packages >= 10kg", []),
             new ShippingTierUnknownException("KINETIX_TELEPORT", []),
             new ShippingFeeContradictedException(9000m, 0m, 0m),
+            new OrderAmountsUnchargeableException("the total to escrow (1) is not what it splits into"),
+            new CheckoutFailedException("ORD-20260908-0001", "stock for PRODUCT-01: out of stock"),
+            new EmptyCartException(),
+            new CartItemsHaveNoMerchantException(),
         };
 
         var rendered = new List<string>();
@@ -147,12 +181,37 @@ public class OrderControllerTests {
 
         Assert.Equal(rendered.Count, rendered.Distinct().Count());
         Assert.Equal([
+            "503 PRICING_UNAVAILABLE",
             "503 SHIPPING_UNAVAILABLE",
             "502 SHIPPING_QUOTE_MALFORMED",
-            "422 SHIPPING_NO_SERVICE",
             "422 SHIPPING_TIER_NOT_ESTABLISHED",
             "400 SHIPPING_TIER_UNKNOWN",
             "502 SHIPPING_FEE_CONTRADICTED",
+            "502 ORDER_AMOUNTS_UNCHARGEABLE",
+            "409 CHECKOUT_ROLLED_BACK",
+            "400 CART_EMPTY",
+            "400 CART_ITEMS_HAVE_NO_MERCHANT",
         ], rendered);
+    }
+
+    [Fact]
+    public async Task NoCheckoutRefusalTellsTheCustomerACourierVerdictThatWasNeverEstablished() {
+        var refusals = new Exception[] {
+            new ShippingUnavailableException(new RpcException(new Status(StatusCode.Unavailable, "no route"))),
+            new ShippingQuoteMalformedException("every tier came back unavailable"),
+            new ShippingTierNotEstablishedException("KINETIX_CARGO", "Cargo is reserved for packages >= 10kg", []),
+            new ShippingTierUnknownException("KINETIX_TELEPORT", []),
+            new ShippingFeeContradictedException(9000m, 0m, 0m),
+            new OrderAmountsUnchargeableException("the total to escrow (1) is not what it splits into"),
+        };
+
+        foreach (var failure in refusals) {
+            var refusal = await CheckoutRefusal(failure);
+            var message = Text(refusal.Value!, "message");
+
+            Assert.DoesNotContain("no courier", message, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("carry this order", message, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("serves", message, StringComparison.OrdinalIgnoreCase);
+        }
     }
 }

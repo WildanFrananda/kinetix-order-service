@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Exceptions;
@@ -43,7 +44,7 @@ public class OrderService(
 
         var cart = await _cartService.GetCartAsync(customerPrincipalId);
         if (cart.Items.Count == 0) {
-            throw new InvalidOperationException("Cannot checkout an empty shopping cart");
+            throw new EmptyCartException();
         }
 
         string? appliedVoucher = request.VoucherCode ?? cart.AppliedVoucherCode;
@@ -75,6 +76,19 @@ public class OrderService(
             );
         }
 
+        decimal merchantAmount = priceResult.Subtotal - priceResult.VoucherDiscount;
+        var unchargeable = UnchargeableAmounts(priceResult, merchantAmount);
+
+        if (unchargeable.Count > 0) {
+            _logger.LogError(
+                "pricing's amounts for this checkout cannot be escrowed as they stand, so it is "
+              + "refused before an order row exists rather than debited and rolled back: {Faults}",
+                string.Join("; ", unchargeable)
+            );
+
+            throw new OrderAmountsUnchargeableException(string.Join("; ", unchargeable));
+        }
+
         string uniqueSuffix = Guid.NewGuid().ToString("N")[..8].ToUpper();
         string orderNumber = $"ORD-{DateTime.UtcNow:yyyyMMdd}-{uniqueSuffix}";
 
@@ -91,7 +105,7 @@ public class OrderService(
             FinalTotal = priceResult.FinalTotal,
             ShippingServiceTier = shippingQuote.ServiceTier,
             DistanceKm = shippingQuote.DistanceKm,
-            ShippingQuoteBasis = ShippingQuoteBasis.TIER_FLOOR,
+            ShippingQuoteBasis = shippingQuote.Basis,
             ShippingAddress = request.ShippingAddress,
             IdempotencyKey = idempotencyKey,
             CreatedAt = DateTime.UtcNow,
@@ -121,7 +135,7 @@ public class OrderService(
             ],
             MerchantPrincipalId: merchantPrincipalId,
             TotalOrderAmount: priceResult.FinalTotal,
-            MerchantAmount: priceResult.Subtotal - priceResult.VoucherDiscount,
+            MerchantAmount: merchantAmount,
             ShippingFeeAmount: priceResult.FinalShippingFee
         );
 
@@ -144,22 +158,126 @@ public class OrderService(
         string? merchantPrincipalId = cart.Items.FirstOrDefault()?.MerchantPrincipalId;
 
         if (string.IsNullOrWhiteSpace(merchantPrincipalId)) {
-            throw new InvalidOperationException(
-                "the items in this cart carry no merchant, so there is nobody to quote shipping "
-              + "for and nobody to pay; remove them and add them again"
-            );
+            throw new CartItemsHaveNoMerchantException();
         }
 
         return merchantPrincipalId;
     }
 
+    private static string Amount(decimal value) => value.ToString(CultureInfo.InvariantCulture);
+
+    private static List<string> UnchargeableAmounts(PriceCalculationResult price, decimal merchantAmount) {
+        var faults = new List<string>();
+
+        if (merchantAmount < 0m) {
+            faults.Add(
+                $"a voucher discount of {Amount(price.VoucherDiscount)} against a subtotal of "
+              + $"{Amount(price.Subtotal)} would pay the merchant {Amount(merchantAmount)}"
+            );
+        }
+
+        decimal split = merchantAmount + price.FinalShippingFee;
+
+        if (price.FinalTotal != split) {
+            faults.Add(
+                $"the total to escrow ({Amount(price.FinalTotal)}) is not what that escrow would "
+              + $"split into: {Amount(merchantAmount)} to the merchant plus "
+              + $"{Amount(price.FinalShippingFee)} of shipping comes to {Amount(split)}"
+            );
+        }
+
+        faults.AddRange(new (string Field, decimal Amount)[] {
+            ("total", price.FinalTotal),
+            ("merchant", merchantAmount),
+            ("shipping", price.FinalShippingFee),
+        }
+            .Where(a => !MinorUnits.IsWhole(a.Amount))
+            .Select(a => $"the {a.Field} amount {Amount(a.Amount)} is not a whole number of minor units")
+        );
+
+        return faults;
+    }
+
     private static bool IsPriced(ShippingOptionResult option) => option.BaseShippingFee is > 0m;
 
-    private static SelectedShippingQuote AsQuote(ShippingOptionResult option) =>
-        new(option.ServiceTier, option.BaseShippingFee!.Value, option.DistanceKm);
+    private static string Name(ShippingOptionResult option) =>
+        string.IsNullOrWhiteSpace(option.ServiceTier) ? "an unnamed tier" : $"'{option.ServiceTier}'";
+
+    private static string Fee(ShippingOptionResult option) =>
+        option.BaseShippingFee is null ? "no fee at all" : Amount(option.BaseShippingFee.Value);
 
     private static string Describe(ShippingOptionResult option) =>
         option.UnavailableReason is null ? option.ServiceTier : $"{option.ServiceTier}: {option.UnavailableReason}";
+
+    private static List<string> UnreadableParts(IReadOnlyList<ShippingOptionResult> options) {
+        var faults = new List<string>();
+
+        foreach (var option in options) {
+            if (string.IsNullOrWhiteSpace(option.ServiceTier)) {
+                faults.Add("an option carries no service tier, so nothing names what would be sold");
+            } else if (option.ServiceTier.Length > OrderEntity.ServiceTierMaxLength) {
+                faults.Add(
+                    $"'{option.ServiceTier}' is longer than the {OrderEntity.ServiceTierMaxLength} "
+                  + "characters an order can record as its tier"
+                );
+            }
+
+            if (!option.IsAvailable) {
+                continue;
+            }
+
+            if (option.UnavailableReason is not null) {
+                faults.Add(
+                    $"{Name(option)} is offered as available and states why it is not: {option.UnavailableReason}"
+                );
+            }
+
+            if (!IsPriced(option)) {
+                faults.Add($"{Name(option)} is offered as available with no usable fee ({Fee(option)})");
+            }
+        }
+
+        faults.AddRange(options
+            .GroupBy(o => o.ServiceTier, StringComparer.Ordinal)
+            .Where(tier => tier.Count() > 1)
+            .Select(tier =>
+                $"'{tier.Key}' is listed {tier.Count()} times, at {string.Join(" and ", tier.Select(Fee))}, "
+              + "so which of those fees is the price cannot be told"
+            )
+        );
+
+        if (options.Count > 0 && options.All(o => !o.IsAvailable)) {
+            faults.Add(
+                $"every tier came back unavailable ({string.Join("; ", options.Select(Describe))}), "
+              + $"and this quote was asked at {ShippingRateCardProbe.ExpectedDistanceKm} km and "
+              + $"{ShippingRateCardProbe.WeightGrams} g, where a rate card has no route and no "
+              + "parcel to refuse, so this is an answer order cannot read rather than a verdict "
+              + "about this delivery"
+            );
+        }
+
+        return faults;
+    }
+
+    private SelectedShippingQuote Establish(ShippingOptionResult option) {
+        var basis = option.DistanceKm == ShippingRateCardProbe.ExpectedDistanceKm
+            ? ShippingQuoteBasis.TIER_FLOOR
+            : ShippingQuoteBasis.DISTANCE_QUOTED;
+
+        if (basis != ShippingQuoteBasis.TIER_FLOOR) {
+            _logger.LogWarning(
+                "{Tier} was priced at {Fee} against {DistanceKm}km, not the "
+              + "{ExpectedDistanceKm}km the rate-card probe asks at, so this order's fee is not a "
+              + "tier floor and its row is stamped {Basis}",
+                option.ServiceTier, option.BaseShippingFee!.Value, option.DistanceKm,
+                ShippingRateCardProbe.ExpectedDistanceKm, basis
+            );
+        }
+
+        return new SelectedShippingQuote(
+            option.ServiceTier, option.BaseShippingFee!.Value, option.DistanceKm, basis
+        );
+    }
 
     private async Task<SelectedShippingQuote> QuoteShippingAsync(string? requestedTier, string merchantPrincipalId) {
         var quote = await _shippingClient.EstimateShippingOptionsAsync(
@@ -173,9 +291,10 @@ public class OrderService(
 
         if (quote.DistanceKm != ShippingRateCardProbe.ExpectedDistanceKm) {
             _logger.LogWarning(
-                "matching returned {DistanceKm}km between two identical points; the rate-card probe "
-              + "assumes 0 and the fees on these orders are no longer tier floors",
-                quote.DistanceKm
+                "matching measured {DistanceKm}km between the two identical points this quote was "
+              + "asked at, where the rate-card probe expects {ExpectedDistanceKm}; matching is no "
+              + "longer answering the question order thinks it is asking",
+                quote.DistanceKm, ShippingRateCardProbe.ExpectedDistanceKm
             );
         }
 
@@ -190,69 +309,47 @@ public class OrderService(
             throw new ShippingQuoteMalformedException("the response carried no courier options at all");
         }
 
-        var available = quote.Options.Where(o => o.IsAvailable).ToList();
+        var unreadable = UnreadableParts(quote.Options);
 
-        if (available.Count == 0) {
-            throw new ShippingNotServiceableException([.. quote.Options.Select(Describe)]);
+        if (unreadable.Count > 0) {
+            _logger.LogError(
+                "matching's shipping answer cannot be read as a rate card, so this checkout is "
+              + "refused rather than priced from a line order cannot trust, and the customer is "
+              + "told this is our fault rather than a courier's verdict: {Faults}. Check the proto "
+              + "version and MATCHING_GRPC_URL before looking at the cart",
+                string.Join("; ", unreadable)
+            );
+
+            throw new ShippingQuoteMalformedException(string.Join("; ", unreadable));
         }
 
         if (string.IsNullOrWhiteSpace(requestedTier)) {
-            var unreadable = available.Where(o => !IsPriced(o)).ToList();
-
-            if (unreadable.Count > 0) {
-                _logger.LogError(
-                    "matching offered {Tiers} as available with no usable fee, so the cheapest "
-                  + "available tier cannot be established and this checkout is refused. An option "
-                  + "with no Money on it used to be read as free shipping",
-                    string.Join(", ", unreadable.Select(o => o.ServiceTier))
-                );
-
-                throw new ShippingQuoteMalformedException(
-                    $"{string.Join(", ", unreadable.Select(o => o.ServiceTier))} came back available "
-                  + "with no usable fee, so the cheapest available tier cannot be established"
-                );
-            }
-
-            return AsQuote(available
+            return Establish(quote.Options
+                .Where(o => o.IsAvailable)
                 .OrderBy(o => o.BaseShippingFee!.Value)
                 .ThenBy(o => o.ServiceTier, StringComparer.Ordinal)
                 .First());
         }
+
+        var availableTiers = quote.Options.Where(o => o.IsAvailable).Select(o => o.ServiceTier).ToList();
 
         var matches = quote.Options
             .Where(o => string.Equals(o.ServiceTier, requestedTier, StringComparison.Ordinal))
             .ToList();
 
         if (matches.Count == 0) {
-            throw new ShippingTierUnknownException(requestedTier, [.. available.Select(o => o.ServiceTier)]);
+            throw new ShippingTierUnknownException(requestedTier, availableTiers);
         }
 
-        var offered = matches.Where(o => o.IsAvailable).ToList();
+        var match = matches[0];
 
-        if (offered.Count == 0) {
+        if (!match.IsAvailable) {
             throw new ShippingTierNotEstablishedException(
-                requestedTier,
-                matches.Select(o => o.UnavailableReason).FirstOrDefault(reason => reason is not null),
-                [.. available.Select(o => o.ServiceTier)]
+                requestedTier, match.UnavailableReason, availableTiers
             );
         }
 
-        var priced = offered.Where(IsPriced).OrderBy(o => o.BaseShippingFee!.Value).ToList();
-
-        if (priced.Count == 0) {
-            _logger.LogError(
-                "matching offered {Tier} as available with no usable fee, so this checkout is "
-              + "refused rather than priced at zero. An option with no Money on it used to be read "
-              + "as free shipping",
-                requestedTier
-            );
-
-            throw new ShippingQuoteMalformedException(
-                $"'{requestedTier}' came back available with no usable fee"
-            );
-        }
-
-        return AsQuote(priced[0]);
+        return Establish(match);
     }
 
     public async Task<OrderResponse?> GetOrderByIdAsync(Guid orderId) {

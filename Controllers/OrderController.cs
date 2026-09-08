@@ -53,14 +53,6 @@ public class OrderController(IOrderService orderService) : ControllerBase {
                         + "not placed. Nothing has been charged or reserved. This is a fault on "
                         + "our side and it has been logged; trying again is unlikely to help.",
             });
-        } catch (ShippingNotServiceableException ex) {
-            return UnprocessableEntity(new {
-                error = "SHIPPING_NO_SERVICE",
-                message = "no courier tier can carry this order, so it was not placed. Nothing has "
-                        + "been charged or reserved.",
-                rateCardReasons = ex.Reasons,
-                basis = ShippingRateCardProbe.AvailabilityBasis,
-            });
         } catch (ShippingTierNotEstablishedException ex) {
             return UnprocessableEntity(new {
                 error = "SHIPPING_TIER_NOT_ESTABLISHED",
@@ -85,14 +77,24 @@ public class OrderController(IOrderService orderService) : ControllerBase {
                 message = "the shipping fee could not be confirmed against the courier quote, so "
                         + "this order was not placed. Nothing has been charged or reserved.",
             });
+        } catch (OrderAmountsUnchargeableException) {
+            return StatusCode(StatusCodes.Status502BadGateway, new {
+                error = "ORDER_AMOUNTS_UNCHARGEABLE",
+                message = "the amounts on this order do not add up to something that can be "
+                        + "charged, so it was not placed. Nothing has been charged or reserved. "
+                        + "This is a fault on our side and it has been logged; trying again is "
+                        + "unlikely to help.",
+            });
         } catch (CheckoutFailedException ex) {
             return Conflict(new {
                 error = "CHECKOUT_ROLLED_BACK",
                 orderNumber = ex.OrderNumber,
                 message = ex.Reason,
             });
-        } catch (InvalidOperationException ex) {
-            return BadRequest(new { error = "CHECKOUT_FAILED", message = ex.Message });
+        } catch (EmptyCartException ex) {
+            return BadRequest(new { error = "CART_EMPTY", message = ex.Message });
+        } catch (CartItemsHaveNoMerchantException ex) {
+            return BadRequest(new { error = "CART_ITEMS_HAVE_NO_MERCHANT", message = ex.Message });
         }
     }
 

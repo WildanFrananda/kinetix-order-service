@@ -11,8 +11,6 @@ public class EscrowGrpcClient(
     PaymentProto.PaymentService.PaymentServiceClient client,
     ILogger<EscrowGrpcClient> logger
 ) : IEscrowClient {
-    private const decimal MinorPerMajor = 100m;
-
     private const string IdempotencyKeyPrefix = "order:";
 
     private readonly PaymentProto.PaymentService.PaymentServiceClient _client = client;
@@ -29,7 +27,7 @@ public class EscrowGrpcClient(
     ) {
         var inexact = new (string Field, decimal Amount)[] {
             ("total", totalOrderAmount), ("merchant", merchantAmount), ("shipping", shippingFeeAmount),
-        }.Where(a => !IsWholeMinorUnits(a.Amount)).ToList();
+        }.Where(a => !MinorUnits.IsWhole(a.Amount)).ToList();
 
         if (inexact.Count > 0) {
             var detail = string.Join(", ", inexact.Select(
@@ -118,11 +116,8 @@ public class EscrowGrpcClient(
         _ => EscrowStandingStatus.Unspecified,
     };
 
-    private static bool IsWholeMinorUnits(decimal amount) =>
-        amount * MinorPerMajor == decimal.Truncate(amount * MinorPerMajor);
-
     private static Money ToMoney(decimal amount) => new() {
-        AmountMinor = decimal.ToInt64(amount * MinorPerMajor),
+        AmountMinor = decimal.ToInt64(amount * MinorUnits.PerMajor),
         Currency = "IDR",
     };
 }

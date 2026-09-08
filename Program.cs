@@ -200,14 +200,19 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
-{
+
+await WarmJwksAsync(app);
+app.Logger.LogInformation("gRPC listening on {Port} (mTLS)", grpcPort);
+
+static async Task WarmJwksAsync(WebApplication app) {
     var jwks = app.Services.GetRequiredService<JwksKeyProvider>();
     const int attempts = 5;
+
     for (var attempt = 1; attempt <= attempts; attempt++) {
         try {
             var loaded = await jwks.RefreshAsync();
             app.Logger.LogInformation("loaded {Count} signing key(s) from identity's JWKS", loaded);
-            break;
+            return;
         } catch (Exception ex) when (attempt < attempts) {
             var delay = TimeSpan.FromSeconds(attempt * 2);
             app.Logger.LogWarning(
@@ -222,8 +227,6 @@ var app = builder.Build();
             );
         }
     }
-
-    app.Logger.LogInformation("gRPC listening on {Port} (mTLS)", grpcPort);
 }
 
 app.UseMiddleware<RequestIdMiddleware>();
