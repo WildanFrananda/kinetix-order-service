@@ -1,7 +1,7 @@
 using Kinetix.OrderService.Domain.Entities;
-using Kinetix.OrderService.DTOs;
+using Kinetix.OrderService.DTOs.Requests;
 
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Application.Ports;
 
 public interface ICartService {
     Task<CustomerCart> GetCartAsync(string customerPrincipalId);

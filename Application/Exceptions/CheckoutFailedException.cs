@@ -1,4 +1,4 @@
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Application.Exceptions;
 
 public class CheckoutFailedException(string orderNumber, string reason)
     : Exception($"checkout {orderNumber} was rolled back: {reason}") {

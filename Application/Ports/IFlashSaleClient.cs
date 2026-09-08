@@ -1,4 +1,6 @@
-namespace Kinetix.OrderService.Application.Services;
+using Kinetix.OrderService.Application.Checkout;
+
+namespace Kinetix.OrderService.Application.Ports;
 
 /// <summary>The two halves of a flash sale's stock.</summary>
 public interface IFlashSaleClient {

@@ -1,5 +1,6 @@
-using Kinetix.OrderService.Application.Services;
-using Kinetix.OrderService.Domain.Entities;
+using Kinetix.OrderService.Application.Checkout;
+using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 

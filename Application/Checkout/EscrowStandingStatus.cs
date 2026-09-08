@@ -1,4 +1,4 @@
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Application.Checkout;
 
 public enum EscrowStandingStatus {
     Unspecified,

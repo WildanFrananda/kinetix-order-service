@@ -1,4 +1,4 @@
-namespace Kinetix.OrderService.Domain.Entities;
+namespace Kinetix.OrderService.Domain.Enums;
 
 public enum SagaState {
     Running,

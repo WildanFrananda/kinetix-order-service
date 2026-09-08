@@ -1,7 +1,7 @@
 using Grpc.Core;
-using Kinetix.OrderService.Domain.Entities;
+using Kinetix.OrderService.Domain.Enums;
 
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Application.Checkout;
 
 public class CompensationPolicy {
     private const int DefaultMaxAttempts = 6;

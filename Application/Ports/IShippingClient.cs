@@ -1,4 +1,6 @@
-namespace Kinetix.OrderService.Application.Services;
+using Kinetix.OrderService.Application.Results;
+
+namespace Kinetix.OrderService.Application.Ports;
 
 
 public interface IShippingClient {

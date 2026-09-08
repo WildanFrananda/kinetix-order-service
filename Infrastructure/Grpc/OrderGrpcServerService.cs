@@ -1,8 +1,9 @@
 using Grpc.Core;
 using Common.V1;
+using Kinetix.OrderService.Application.Ports;
 using OrderProto = global::Order.V1;
 
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Infrastructure.Grpc;
 
 public class OrderGrpcServerService(IOrderService orderService) : OrderProto.OrderService.OrderServiceBase {
     private readonly IOrderService _orderService = orderService;

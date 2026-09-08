@@ -1,7 +1,9 @@
 using Common.V1;
+using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Application.Results;
 using Shipping.V1;
 
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Infrastructure.Grpc;
 
 public class ShippingGrpcClient(ShippingService.ShippingServiceClient client) : IShippingClient {
     private readonly ShippingService.ShippingServiceClient _client = client;

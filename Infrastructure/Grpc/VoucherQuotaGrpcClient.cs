@@ -1,7 +1,9 @@
 using Grpc.Core;
+using Kinetix.OrderService.Application.Checkout;
+using Kinetix.OrderService.Application.Ports;
 using Pricing.V1;
 
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Infrastructure.Grpc;
 
 public class VoucherQuotaGrpcClient(
     PricingService.PricingServiceClient client,

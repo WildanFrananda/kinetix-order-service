@@ -1,5 +1,6 @@
 using Kinetix.OrderService.Domain.Entities;
-using Kinetix.OrderService.DTOs;
+using Kinetix.OrderService.Domain.Enums;
+using Kinetix.OrderService.DTOs.Responses;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

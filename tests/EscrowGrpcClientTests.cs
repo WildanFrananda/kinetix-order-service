@@ -1,5 +1,5 @@
 using Grpc.Core;
-using Kinetix.OrderService.Application.Services;
+using Kinetix.OrderService.Infrastructure.Grpc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;

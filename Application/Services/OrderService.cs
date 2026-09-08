@@ -1,7 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Kinetix.OrderService.Application.Checkout;
+using Kinetix.OrderService.Application.Exceptions;
+using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Application.Results;
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
-using Kinetix.OrderService.DTOs;
+using Kinetix.OrderService.DTOs.Requests;
+using Kinetix.OrderService.DTOs.Responses;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
 

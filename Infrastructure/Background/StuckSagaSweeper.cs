@@ -1,4 +1,5 @@
-using Kinetix.OrderService.Application.Services;
+using Kinetix.OrderService.Application.Checkout;
+using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 

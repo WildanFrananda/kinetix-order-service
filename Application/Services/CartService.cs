@@ -1,7 +1,8 @@
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
+using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Entities;
-using Kinetix.OrderService.DTOs;
+using Kinetix.OrderService.DTOs.Requests;
 
 namespace Kinetix.OrderService.Application.Services;
 

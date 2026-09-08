@@ -1,6 +1,6 @@
-using Kinetix.OrderService.Domain.Entities;
+using Kinetix.OrderService.Domain.Enums;
 
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Application.Checkout;
 
 public record StepCompensationOutcome(
     bool Landed,

@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using Xunit;
-using Kinetix.OrderService.Application.Services;
+using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Controllers;
 
 namespace Kinetix.OrderService.Tests;

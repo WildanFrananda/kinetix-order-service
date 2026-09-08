@@ -1,4 +1,6 @@
-namespace Kinetix.OrderService.Application.Services;
+using Kinetix.OrderService.Application.Checkout;
+
+namespace Kinetix.OrderService.Application.Ports;
 
 public interface IEscrowClient {
     Task<StepResult> CreateHoldAsync(

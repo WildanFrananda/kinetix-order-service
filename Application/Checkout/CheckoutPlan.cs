@@ -1,4 +1,4 @@
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Application.Checkout;
 
 public record CheckoutPlan(
     string OrderNumber,

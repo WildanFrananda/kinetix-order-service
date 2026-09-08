@@ -1,8 +1,10 @@
 using Common.V1;
 using Grpc.Core;
+using Kinetix.OrderService.Application.Checkout;
+using Kinetix.OrderService.Application.Ports;
 using PaymentProto = global::Payment.V1;
 
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Infrastructure.Grpc;
 
 public class EscrowGrpcClient(
     PaymentProto.PaymentService.PaymentServiceClient client,

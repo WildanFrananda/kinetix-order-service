@@ -1,7 +1,10 @@
 using Common.V1;
+using Kinetix.OrderService.Application.Exceptions;
+using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Application.Results;
 using Pricing.V1;
 
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Infrastructure.Grpc;
 
 public class PricingGrpcClient(
     PricingService.PricingServiceClient client,

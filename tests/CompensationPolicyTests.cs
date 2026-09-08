@@ -1,6 +1,6 @@
 using Grpc.Core;
-using Kinetix.OrderService.Application.Services;
-using Kinetix.OrderService.Domain.Entities;
+using Kinetix.OrderService.Application.Checkout;
+using Kinetix.OrderService.Domain.Enums;
 using Xunit;
 
 namespace Kinetix.OrderService.Tests;

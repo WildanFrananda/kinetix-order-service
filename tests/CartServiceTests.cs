@@ -3,7 +3,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Moq;
 using Xunit;
 using Kinetix.OrderService.Application.Services;
-using Kinetix.OrderService.DTOs;
+using Kinetix.OrderService.DTOs.Requests;
 
 namespace Kinetix.OrderService.Tests;
 

@@ -1,4 +1,4 @@
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Application.Checkout;
 
 public record ForwardPassOutcome(bool LeaseLost, string? FailureReason) {
     public static ForwardPassOutcome Completed() => new(false, null);

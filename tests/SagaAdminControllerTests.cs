@@ -1,6 +1,6 @@
-using Kinetix.OrderService.Application.Services;
+using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Controllers;
-using Kinetix.OrderService.DTOs;
+using Kinetix.OrderService.DTOs.Responses;
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.Infrastructure.Persistence;

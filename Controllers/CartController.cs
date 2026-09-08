@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Kinetix.OrderService.Application.Services;
-using Kinetix.OrderService.DTOs;
+using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.DTOs.Requests;
 
 namespace Kinetix.OrderService.Controllers;
 

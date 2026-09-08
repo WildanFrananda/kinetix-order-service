@@ -1,4 +1,4 @@
-namespace Kinetix.OrderService.DTOs;
+namespace Kinetix.OrderService.DTOs.Responses;
 
 public record SagaNeedingAttentionResponse(
     Guid SagaId,

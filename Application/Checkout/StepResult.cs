@@ -1,4 +1,4 @@
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Application.Checkout;
 
 public record StepResult(bool Success, bool AlreadyDone, string? Detail) {
     public static StepResult Ok() => new(true, false, null);

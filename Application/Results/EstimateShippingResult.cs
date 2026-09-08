@@ -1,4 +1,4 @@
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Application.Results;
 
 public record EstimateShippingResult(
     double DistanceKm,

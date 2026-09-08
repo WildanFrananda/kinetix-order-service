@@ -1,6 +1,7 @@
-using Kinetix.OrderService.Domain.Entities;
+using Kinetix.OrderService.Application.Checkout;
+using Kinetix.OrderService.Domain.Enums;
 
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Application.Ports;
 
 public interface ISagaLeaseStore {
     Task<SagaLease?> TryAcquireForwardAsync(Guid sagaId, CancellationToken cancellationToken);

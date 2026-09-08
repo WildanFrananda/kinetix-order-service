@@ -1,4 +1,4 @@
-namespace Kinetix.OrderService.Application.Services;
+namespace Kinetix.OrderService.Infrastructure.Configuration;
 
 public static class EnvLoader {
     public static void Load(string filePath = ".env") {
