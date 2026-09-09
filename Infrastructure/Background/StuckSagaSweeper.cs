@@ -76,7 +76,7 @@ public class StuckSagaSweeper(
                 saga,
                 saga.FailureReason ?? "the checkout that started this saga never finished",
                 heldLease: null,
-                stoppingToken
+                CancellationToken.None
             );
         }
     }

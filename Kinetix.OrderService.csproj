@@ -39,6 +39,10 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.0-rc.2.25502.107" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0-rc.2" />
+    <!-- The Prometheus text exposition on /metrics. OpenTelemetry would also get there, but it
+         brings a whole SDK, a pipeline and an exporter to serve one endpoint the estate's
+         metrics contract already specifies down to the metric names. -->
+    <PackageReference Include="prometheus-net.AspNetCore" Version="8.2.1" />
     <!-- Required by `dotnet ef` to read the model at design time. PrivateAssets="all" keeps it
          out of the published output, so the runtime image does not carry tooling it never
          calls. Version tracks Microsoft.EntityFrameworkCore as resolved in packages.lock.json;
