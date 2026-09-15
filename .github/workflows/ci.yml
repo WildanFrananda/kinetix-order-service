@@ -36,6 +36,12 @@ jobs:
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler
 
+      # The wire contracts are not in this repository: bin/sync-contracts fetches them at a pinned commit and
+      # the .csproj compiles .contracts/proto/**. Without it the build stops at
+      # ".contracts/proto : directory does not exist" — which is how this job failed on its first run.
+      - name: Fetch the contracts
+        run: sh bin/sync-contracts
+
       # --locked-mode fails if packages.lock.json does not already describe the graph exactly.
       - run: dotnet restore --locked-mode
 
@@ -74,6 +80,9 @@ jobs:
 
       - name: Install protoc and psql
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler postgresql-client
+
+      - name: Fetch the contracts
+        run: sh bin/sync-contracts
 
       - run: dotnet restore --locked-mode
 

@@ -13,6 +13,16 @@ RUN dotnet restore "Kinetix.OrderService.csproj"
 
 COPY . .
 
+# The wire contracts live in kinetix-contracts, not here: bin/sync-contracts fetches them at a pinned commit
+# and the .csproj compiles .contracts/proto/**. Until now this image built only when the build context
+# happened to carry a .contracts directory from somebody's laptop — a fresh clone failed with
+# ".contracts/proto : directory does not exist", which is exactly how CI failed on its first run.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && sh bin/sync-contracts \
+    && test -d .contracts/proto
+
 RUN PLUGIN="$(find /root/.nuget/packages/grpc.tools -name grpc_csharp_plugin -path '*linux_arm64*' -o -name grpc_csharp_plugin -path '*linux_x64*' | head -1)" \
     && test -n "$PLUGIN" \
     && dotnet publish "Kinetix.OrderService.csproj" -c Release -o /app/publish \
