@@ -22,6 +22,10 @@ docker-compose*.yml
 docs/
 
 bin/
+# …except the contracts fetcher, which the Dockerfile runs. `bin/` is ignored here because .NET puts
+# build output there; excluding the one script it also holds made the image build die with
+# "cannot open bin/sync-contracts: No such file".
+!bin/sync-contracts
 obj/
 *.user
 tests/

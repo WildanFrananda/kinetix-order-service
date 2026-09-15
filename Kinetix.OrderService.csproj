@@ -36,9 +36,21 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0-rc.2.25502.107" />
-    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.0-rc.2.25502.107" />
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0-rc.2" />
+    <!-- Stable, not the 10.0.0-rc.2 builds these were on. net10.0 went GA, and a release candidate is
+         unlisted once that happens: CI failed on NU1603 because 10.0.0-rc.2.25410.1 no longer resolves
+         from nuget.org. The build only worked locally because the packages were already in ~/.nuget. -->
+    <!-- Explicit, though nothing here uses EF Core directly: Npgsql asks for [10.0.4, 11.0.0) and NuGet
+         takes the floor, while the test project's InMemory provider asks for 10.0.12. That left the two
+         halves of the solution on different EF versions (MSB3277, resolved in favour of the older one) —
+         a provider and a model built against different EF Core versions. These two lines name one version
+         for the whole graph; move them and the test project's InMemory pin together. Relational needs its
+         own line because Npgsql depends on it directly — pinning Microsoft.EntityFrameworkCore alone
+         leaves Relational on the floor of Npgsql's range and the conflict stands. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.12" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <!-- The Prometheus text exposition on /metrics. OpenTelemetry would also get there, but it
          brings a whole SDK, a pipeline and an exporter to serve one endpoint the estate's
          metrics contract already specifies down to the metric names. -->
@@ -47,7 +59,7 @@
          out of the published output, so the runtime image does not carry tooling it never
          calls. Version tracks Microsoft.EntityFrameworkCore as resolved in packages.lock.json;
          a design-time package on a different EF version reads a different model. -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0-rc.2.25502.107">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
