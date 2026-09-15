@@ -1,0 +1,59 @@
+#!/usr/bin/env sh
+# Fetches the wire contracts this service compiles against.
+#
+# There is no kinetix-contracts NuGet package: buf publishes the generated code for other languages,
+# and C# stubs are produced here by Grpc.Tools from .proto at build time. So the .proto come from the
+# contract repository at a pinned commit rather than from a copy committed here. `.contracts/` is
+# gitignored, so `git ls-files '*.proto'` stays empty and the S9 exit criterion holds.
+#
+# Pinned to a commit, not just a tag: a tag can be moved, and a moved tag silently changes what this
+# service speaks. The tag is what a reader looks up; the commit is what is verified.
+#
+# This script is the one the Dockerfile and CI have named all along while it did not exist. The image
+# and the build only ever worked where a .contracts directory was already sitting in the working tree,
+# which is why a fresh clone failed with "cannot open bin/sync-contracts: No such file".
+set -eu
+
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+REPO="https://github.com/WildanFrananda/kinetix-contracts.git"
+TAG="v1.0.5"
+COMMIT="ff27aecce05b548c5e37217419313c2387aed9bd"
+DEST="$HERE/.contracts"
+
+if [ -d "$DEST/.git" ]; then
+  got="$(git -C "$DEST" rev-parse HEAD)"
+  if [ "$got" = "$COMMIT" ]; then
+    echo "contracts already at $TAG ($COMMIT)"
+    exit 0
+  fi
+  rm -rf "$DEST"
+fi
+
+git clone --depth 1 --branch "$TAG" --quiet "$REPO" "$DEST"
+
+got="$(git -C "$DEST" rev-parse HEAD)"
+if [ "$got" != "$COMMIT" ]; then
+  echo "$TAG resolves to $got, but this service is pinned to $COMMIT"
+  echo "either the tag was moved or the pin is stale; neither should be worked around here"
+  rm -rf "$DEST"
+  exit 1
+fi
+
+# Every .proto the .csproj lists. A missing one fails here, naming the file, rather than as a wall of
+# unresolved C# symbols several minutes into the build.
+for proto in \
+  common/v1/common.proto \
+  fulfillment/v1/fulfillment.proto \
+  identity/v1/identity.proto \
+  order/v1/order.proto \
+  payment/v1/payment.proto \
+  pricing/v1/pricing.proto \
+  shipping/v1/shipping.proto
+do
+  test -f "$DEST/proto/$proto" || {
+    echo "$TAG has no proto/$proto, which Kinetix.OrderService.csproj compiles"
+    exit 1
+  }
+done
+
+echo "contracts synced at $TAG ($COMMIT)"
