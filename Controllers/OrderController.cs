@@ -33,6 +33,8 @@ public class OrderController(IOrderService orderService) : ControllerBase {
         try {
             var order = await _orderService.CheckoutAsync(customerPrincipalId, request, idempotencyKey);
             return CreatedAtAction(nameof(GetOrderById), new { orderId = order.Id }, order);
+        } catch (RecipientMissingException ex) {
+            return BadRequest(new { error = "RECIPIENT_REQUIRED", field = ex.Field, message = ex.Message });
         } catch (PricingUnavailableException) {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
                 error = "PRICING_UNAVAILABLE",

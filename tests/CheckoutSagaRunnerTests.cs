@@ -38,6 +38,8 @@ public class CheckoutSagaRunnerTests {
         MerchantAmount: 100000m,
         ShippingFeeAmount: 20000m,
         ShippingAddress: "Jl. Test 1, Jakarta",
+        RecipientName: "Test Buyer",
+        RecipientPhone: "081200000000",
         FulfillmentLines: [.. skus.Select(sku => new FulfillmentLine(sku, $"Product {sku}", 1, 100000m))]
     );
 
@@ -75,7 +77,8 @@ public class CheckoutSagaRunnerTests {
     private static Mock<IFulfillmentClient> AcceptingFulfillment() {
         var mock = new Mock<IFulfillmentClient>();
         mock.Setup(c => c.CreateOrderAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<decimal>(), It.IsAny<IReadOnlyList<FulfillmentLine>>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+                It.IsAny<IReadOnlyList<FulfillmentLine>>()))
             .ReturnsAsync(new FulfillmentCreated(StepResult.Ok(), "901"));
         mock.Setup(c => c.CancelOrderAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
@@ -122,7 +125,7 @@ public class CheckoutSagaRunnerTests {
 
         Assert.True(outcome.Succeeded);
         fulfilment.Verify(c => c.CreateOrderAsync(
-            Merchant, "ORD-TEST-0001", "Jl. Test 1, Jakarta", 120000m,
+            Merchant, "ORD-TEST-0001", "Jl. Test 1, Jakarta", "Test Buyer", "081200000000", 120000m,
             It.Is<IReadOnlyList<FulfillmentLine>>(l => l.Count == 1 && l[0].Sku == "SKU-1")
         ), Times.Once);
     }
@@ -133,7 +136,8 @@ public class CheckoutSagaRunnerTests {
         var (voucher, flash, stock, escrow) = AllAgreeing();
         var fulfilment = new Mock<IFulfillmentClient>();
         fulfilment.Setup(c => c.CreateOrderAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<decimal>(), It.IsAny<IReadOnlyList<FulfillmentLine>>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+                It.IsAny<IReadOnlyList<FulfillmentLine>>()))
             .ReturnsAsync(new FulfillmentCreated(StepResult.Refused("that merchant is unknown here"), string.Empty));
 
         var outcome = await Runner(db, voucher, flash, stock, escrow, fulfilment: fulfilment)

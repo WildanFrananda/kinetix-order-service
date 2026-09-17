@@ -12,6 +12,9 @@ using Xunit;
 namespace Kinetix.OrderService.Tests;
 
 public class OrderControllerTests {
+    private const string Buyer = "Test Buyer";
+    private const string BuyerPhone = "081200000000";
+
     private const string Customer = "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7";
 
     private static OrderController ControllerRefusingWith(Exception failure) {
@@ -30,7 +33,7 @@ public class OrderControllerTests {
 
     private static async Task<ObjectResult> CheckoutRefusal(Exception failure) {
         var response = await ControllerRefusingWith(failure)
-            .Checkout(new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null));
+            .Checkout(new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone));
 
         return Assert.IsAssignableFrom<ObjectResult>(response);
     }

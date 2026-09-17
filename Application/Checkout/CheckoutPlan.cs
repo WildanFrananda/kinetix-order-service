@@ -11,5 +11,7 @@ public record CheckoutPlan(
     decimal MerchantAmount,
     decimal ShippingFeeAmount,
     string ShippingAddress,
+    string RecipientName,
+    string RecipientPhone,
     IReadOnlyList<FulfillmentLine> FulfillmentLines
 );

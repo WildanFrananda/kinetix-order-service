@@ -231,6 +231,8 @@ public class CheckoutSagaRunner(
             plan.MerchantPrincipalId,
             plan.OrderNumber,
             plan.ShippingAddress,
+            plan.RecipientName,
+            plan.RecipientPhone,
             plan.TotalOrderAmount,
             plan.FulfillmentLines);
 

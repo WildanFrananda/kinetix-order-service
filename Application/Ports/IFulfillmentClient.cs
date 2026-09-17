@@ -7,6 +7,8 @@ public interface IFulfillmentClient {
         string merchantPrincipalId,
         string orderNumber,
         string shippingAddress,
+        string recipientName,
+        string recipientPhone,
         decimal totalAmount,
         IReadOnlyList<FulfillmentLine> lines
     );

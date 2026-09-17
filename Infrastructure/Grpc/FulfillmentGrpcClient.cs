@@ -24,13 +24,19 @@ public class FulfillmentGrpcClient(
         string merchantPrincipalId,
         string orderNumber,
         string shippingAddress,
+        string recipientName,
+        string recipientPhone,
         decimal totalAmount,
         IReadOnlyList<FulfillmentLine> lines
     ) {
         var request = new CreateOrderRequest {
             MerchantPrincipalId = merchantPrincipalId,
             OrderNumber = orderNumber,
-            ShippingAddress = new Address { StreetAddress = shippingAddress },
+            ShippingAddress = new Address {
+                StreetAddress = shippingAddress,
+                RecipientName = recipientName,
+                PhoneNumber = recipientPhone,
+            },
             TotalAmount = ToMoney(totalAmount),
             IdempotencyKey = new IdempotencyKey { Key = orderNumber },
         };
