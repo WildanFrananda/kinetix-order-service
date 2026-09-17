@@ -69,7 +69,15 @@ public class OrderServiceTests {
         var escrow = escrowClient ?? AcceptingEscrow().Object;
 
         var policy = new CompensationPolicy();
+        var fulfilment = new Mock<IFulfillmentClient>();
+        fulfilment.Setup(c => c.CreateOrderAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<decimal>(), It.IsAny<IReadOnlyList<FulfillmentLine>>()))
+            .ReturnsAsync(new FulfillmentCreated(StepResult.Ok(), "901"));
+        fulfilment.Setup(c => c.CancelOrderAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(StepResult.Ok());
+
         var runner = new CheckoutSagaRunner(db, voucher.Object, flash.Object, stock.Object, escrow,
+            fulfilment.Object,
             new FakeSagaLeaseStore(db, policy), policy, new RequestIdAccessor(new HttpContextAccessor()),
             NullLogger<CheckoutSagaRunner>.Instance
         );
@@ -783,7 +791,7 @@ public class OrderServiceTests {
 
         Assert.NotNull(result);
         Assert.StartsWith("ORD-", result.OrderNumber);
-        Assert.Equal("PENDING_PAYMENT", result.Status);
+        Assert.Equal("PAID", result.Status);
         Assert.Equal(200000m, result.Subtotal);
         Assert.Equal(20000m, result.DiscountAmount);
         Assert.Equal(15000m, result.BaseShippingFee);

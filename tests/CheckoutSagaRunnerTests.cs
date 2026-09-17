@@ -36,7 +36,9 @@ public class CheckoutSagaRunnerTests {
         MerchantPrincipalId: Merchant,
         TotalOrderAmount: 120000m,
         MerchantAmount: 100000m,
-        ShippingFeeAmount: 20000m
+        ShippingFeeAmount: 20000m,
+        ShippingAddress: "Jl. Test 1, Jakarta",
+        FulfillmentLines: [.. skus.Select(sku => new FulfillmentLine(sku, $"Product {sku}", 1, 100000m))]
     );
 
     private static (Mock<IVoucherQuotaClient>, Mock<IFlashSaleClient>, Mock<IStockClient>, Mock<IEscrowClient>) AllAgreeing() {
@@ -70,6 +72,16 @@ public class CheckoutSagaRunnerTests {
         return (voucher, flash, stock, escrow);
     }
 
+    private static Mock<IFulfillmentClient> AcceptingFulfillment() {
+        var mock = new Mock<IFulfillmentClient>();
+        mock.Setup(c => c.CreateOrderAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<decimal>(), It.IsAny<IReadOnlyList<FulfillmentLine>>()))
+            .ReturnsAsync(new FulfillmentCreated(StepResult.Ok(), "901"));
+        mock.Setup(c => c.CancelOrderAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(StepResult.Ok());
+        return mock;
+    }
+
     private static CheckoutSagaRunner Runner(
         OrderDbContext db,
         Mock<IVoucherQuotaClient> v,
@@ -77,11 +89,13 @@ public class CheckoutSagaRunnerTests {
         Mock<IStockClient> s,
         Mock<IEscrowClient> e,
         CompensationPolicy? policy = null,
-        ISagaLeaseStore? leases = null
+        ISagaLeaseStore? leases = null,
+        Mock<IFulfillmentClient>? fulfilment = null
     ) {
         var effectivePolicy = policy ?? new CompensationPolicy();
         return new CheckoutSagaRunner(
             db, v.Object, f.Object, s.Object, e.Object,
+            (fulfilment ?? AcceptingFulfillment()).Object,
             leases ?? new FakeSagaLeaseStore(db, effectivePolicy),
             effectivePolicy,
             new RequestIdAccessor(new HttpContextAccessor()),
@@ -95,6 +109,55 @@ public class CheckoutSagaRunnerTests {
         saga.LeaseOwner = null;
         saga.LeaseExpiresAt = null;
         await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task ASucceedingCheckoutTellsTheWarehouseThereIsAnOrderToPick() {
+        using var db = NewDbContext();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
+        var fulfilment = AcceptingFulfillment();
+
+        var outcome = await Runner(db, voucher, flash, stock, escrow, fulfilment: fulfilment)
+            .RunAsync(PlanWith(null, ["SKU-1"]));
+
+        Assert.True(outcome.Succeeded);
+        fulfilment.Verify(c => c.CreateOrderAsync(
+            Merchant, "ORD-TEST-0001", "Jl. Test 1, Jakarta", 120000m,
+            It.Is<IReadOnlyList<FulfillmentLine>>(l => l.Count == 1 && l[0].Sku == "SKU-1")
+        ), Times.Once);
+    }
+
+    [Fact]
+    public async Task AWarehouseThatRefusesTheOrderRollsTheWholeCheckoutBack() {
+        using var db = NewDbContext();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
+        var fulfilment = new Mock<IFulfillmentClient>();
+        fulfilment.Setup(c => c.CreateOrderAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<decimal>(), It.IsAny<IReadOnlyList<FulfillmentLine>>()))
+            .ReturnsAsync(new FulfillmentCreated(StepResult.Refused("that merchant is unknown here"), string.Empty));
+
+        var outcome = await Runner(db, voucher, flash, stock, escrow, fulfilment: fulfilment)
+            .RunAsync(PlanWith(null, ["SKU-1"]));
+
+        Assert.False(outcome.Succeeded);
+        stock.Verify(c => c.ReleaseStockAsync(Merchant, "SKU-1", 1, "ORD-TEST-0001"), Times.Once);
+        escrow.Verify(c => c.RefundHoldAsync("ORD-TEST-0001", It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CompensationCancelsTheWarehouseOrderByTheIdItAnsweredWith() {
+        using var db = NewDbContext();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
+        escrow.Setup(c => c.RefundHoldAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(StepResult.Ok());
+        var fulfilment = AcceptingFulfillment();
+
+        var runner = Runner(db, voucher, flash, stock, escrow, fulfilment: fulfilment);
+        await runner.RunAsync(PlanWith(null, ["SKU-1"]));
+
+        var step = await db.CheckoutSagaSteps
+            .SingleAsync(s => s.Name == SagaStepName.CreateFulfillmentOrder);
+        Assert.Equal("901", step.Reference);
     }
 
     [Fact]

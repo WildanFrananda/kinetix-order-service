@@ -9,5 +9,7 @@ public record CheckoutPlan(
     string MerchantPrincipalId,
     decimal TotalOrderAmount,
     decimal MerchantAmount,
-    decimal ShippingFeeAmount
+    decimal ShippingFeeAmount,
+    string ShippingAddress,
+    IReadOnlyList<FulfillmentLine> FulfillmentLines
 );
