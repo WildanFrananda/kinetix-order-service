@@ -136,7 +136,11 @@ public class OrderService(
             MerchantPrincipalId: merchantPrincipalId,
             TotalOrderAmount: priceResult.FinalTotal,
             MerchantAmount: merchantAmount,
-            ShippingFeeAmount: priceResult.FinalShippingFee
+            ShippingFeeAmount: priceResult.FinalShippingFee,
+            ShippingAddress: request.ShippingAddress,
+            FulfillmentLines: [.. cart.Items.Select(item =>
+                new FulfillmentLine(item.ProductId, item.ProductTitle, item.Quantity, item.UnitPrice)
+            )]
         );
 
         var outcome = await _sagaRunner.RunAsync(plan);
@@ -148,6 +152,10 @@ public class OrderService(
 
             throw new CheckoutFailedException(orderNumber, outcome.FailureReason ?? "a checkout step was refused");
         }
+
+        order.Status = OrderStatus.PAID;
+        order.UpdatedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync();
 
         await _cartService.ClearCartAsync(customerPrincipalId);
 

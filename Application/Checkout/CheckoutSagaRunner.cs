@@ -14,6 +14,7 @@ public class CheckoutSagaRunner(
     IFlashSaleClient flashSaleClient,
     IStockClient stockClient,
     IEscrowClient escrowClient,
+    IFulfillmentClient fulfillmentClient,
     ISagaLeaseStore leaseStore,
     CompensationPolicy policy,
     RequestIdAccessor requestIds,
@@ -25,6 +26,7 @@ public class CheckoutSagaRunner(
 
     private readonly OrderDbContext _dbContext = dbContext;
     private readonly IVoucherQuotaClient _voucherClient = voucherClient;
+    private readonly IFulfillmentClient _fulfillmentClient = fulfillmentClient;
     private readonly IFlashSaleClient _flashSaleClient = flashSaleClient;
     private readonly IStockClient _stockClient = stockClient;
     private readonly IEscrowClient _escrowClient = escrowClient;
@@ -219,6 +221,34 @@ public class CheckoutSagaRunner(
             return ForwardPassOutcome.Failed($"escrow: {escrow.Detail}");
         }
 
+        if (!await _leaseStore.HeartbeatAsync(lease, CancellationToken.None)) {
+            return ForwardPassOutcome.Lost();
+        }
+
+        var fulfilmentStep = await BeginStep(saga, SagaStepName.CreateFulfillmentOrder, plan.OrderNumber, 1,
+            plan.MerchantPrincipalId);
+        var created = await _fulfillmentClient.CreateOrderAsync(
+            plan.MerchantPrincipalId,
+            plan.OrderNumber,
+            plan.ShippingAddress,
+            plan.TotalOrderAmount,
+            plan.FulfillmentLines);
+
+        if (!string.IsNullOrWhiteSpace(created.WarehouseOrderId)) {
+            _dbContext.Attach(fulfilmentStep);
+            fulfilmentStep.Reference = created.WarehouseOrderId;
+            await _dbContext.SaveChangesAsync();
+            _dbContext.Entry(fulfilmentStep).State = EntityState.Detached;
+        }
+
+        var fulfilmentSettled = await Settle(lease, fulfilmentStep, created.Result);
+        if (fulfilmentSettled is null) {
+            return ForwardPassOutcome.Lost();
+        }
+        if (!fulfilmentSettled.Value) {
+            return ForwardPassOutcome.Failed($"fulfilment: {created.Result.Detail}");
+        }
+
         return ForwardPassOutcome.Completed();
     }
 
@@ -403,6 +433,7 @@ public class CheckoutSagaRunner(
             SagaStepName.RedeemVoucher
             or SagaStepName.ReserveStock
             or SagaStepName.AllocateFlashSaleStock
+            or SagaStepName.CreateFulfillmentOrder
             )) {
             return StepCompensationOutcome.Terminal(
                 CompensationFailureCode.NoCompensationDefined,
@@ -422,6 +453,8 @@ public class CheckoutSagaRunner(
                 SagaStepName.ReserveStock =>
                     await _stockClient.ReleaseStockAsync(
                         step.MerchantPrincipalId, step.Reference, step.Quantity, saga.OrderNumber),
+                SagaStepName.CreateFulfillmentOrder =>
+                    await _fulfillmentClient.CancelOrderAsync(step.MerchantPrincipalId, step.Reference),
                 _ =>
                     await _flashSaleClient.ReleaseAsync(
                         step.Reference, step.ProductId ?? string.Empty, step.Quantity, saga.OrderNumber),

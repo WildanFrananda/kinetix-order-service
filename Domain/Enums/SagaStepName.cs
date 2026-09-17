@@ -5,4 +5,5 @@ public enum SagaStepName {
     AllocateFlashSaleStock,
     ReserveStock,
     CreateEscrowHold,
+    CreateFulfillmentOrder,
 }

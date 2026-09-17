@@ -175,6 +175,15 @@ builder.Services.AddGrpcClient<Fulfillment.V1.BinStockService.BinStockServiceCli
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
 
+builder.Services.AddGrpcClient<Fulfillment.V1.FulfillmentService.FulfillmentServiceClient>(options => {
+    options.Address = warehouseAddress;
+}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+  .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
+      warehouseAddress.Host, services.GetRequiredService<KinetixMetrics>()
+  ))
+  .AddInterceptor<RequestIdForwardingInterceptor>()
+  .AddInterceptor<GrpcDeadlineInterceptor>();
+
 builder.Services.AddGrpcClient<Payment.V1.PaymentService.PaymentServiceClient>(options => {
     options.Address = paymentAddress;
 }).ConfigurePrimaryHttpMessageHandler(MeshHandler)
@@ -226,6 +235,7 @@ builder.Services.AddScoped<IVoucherQuotaClient, VoucherQuotaGrpcClient>();
 builder.Services.AddScoped<IFlashSaleClient, FlashSaleGrpcClient>();
 builder.Services.AddScoped<IStockClient, StockGrpcClient>();
 builder.Services.AddScoped<IEscrowClient, EscrowGrpcClient>();
+builder.Services.AddScoped<IFulfillmentClient, FulfillmentGrpcClient>();
 
 builder.Services.AddSingleton<SagaWorkerIdentity>();
 builder.Services.AddSingleton(CompensationPolicy.FromConfiguration(builder.Configuration));
@@ -255,6 +265,7 @@ metrics.RegisterGrpcServerSurface(Order.V1.OrderService.Descriptor);
 metrics.RegisterGrpcClientSurface(pricingAddress.Host, Pricing.V1.PricingService.Descriptor);
 metrics.RegisterGrpcClientSurface(matchingAddress.Host, Shipping.V1.ShippingService.Descriptor);
 metrics.RegisterGrpcClientSurface(warehouseAddress.Host, Fulfillment.V1.BinStockService.Descriptor);
+metrics.RegisterGrpcClientSurface(warehouseAddress.Host, Fulfillment.V1.FulfillmentService.Descriptor);
 metrics.RegisterGrpcClientSurface(paymentAddress.Host, Payment.V1.PaymentService.Descriptor);
 
 var drain = app.Services.GetRequiredService<DrainState>();
