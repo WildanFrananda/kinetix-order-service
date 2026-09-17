@@ -19,6 +19,9 @@ using OrderApplicationService = Kinetix.OrderService.Application.Services.OrderS
 namespace Kinetix.OrderService.Tests;
 
 public class OrderServiceTests {
+    private const string Buyer = "Test Buyer";
+    private const string BuyerPhone = "081200000000";
+
     private const string Customer = "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7";
     private const string Merchant = "3aa957c8-b802-4d58-b9fc-f7b76ce60fa3";
 
@@ -71,7 +74,8 @@ public class OrderServiceTests {
         var policy = new CompensationPolicy();
         var fulfilment = new Mock<IFulfillmentClient>();
         fulfilment.Setup(c => c.CreateOrderAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<decimal>(), It.IsAny<IReadOnlyList<FulfillmentLine>>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+                It.IsAny<IReadOnlyList<FulfillmentLine>>()))
             .ReturnsAsync(new FulfillmentCreated(StepResult.Ok(), "901"));
         fulfilment.Setup(c => c.CancelOrderAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
@@ -133,6 +137,8 @@ public class OrderServiceTests {
         var request = FromJson("""
             {
               "shippingAddress": "Jl. Sudirman No. 45, Jakarta",
+              "recipientName": "Test Buyer",
+              "recipientPhone": "081200000000",
               "voucherCode": null,
               "shippingServiceTier": "KINETIX_INSTANT",
               "baseShippingFee": 0,
@@ -172,7 +178,7 @@ public class OrderServiceTests {
             PricingPassingShippingThrough().Object, ShippingReturning(RateCardFloor()).Object);
 
         var request = FromJson("""
-            {"shippingAddress":"Jl. Sudirman No. 45, Jakarta","distanceKm":5.2,"baseShippingFee":1}
+            {"recipientName":"Test Buyer","recipientPhone":"081200000000","shippingAddress":"Jl. Sudirman No. 45, Jakarta","distanceKm":5.2,"baseShippingFee":1}
             """);
 
         var result = await orderService.CheckoutAsync(Customer, request, "IDEMP-KEY-DISTANCE");
@@ -189,7 +195,7 @@ public class OrderServiceTests {
             PricingPassingShippingThrough().Object, shipping.Object);
 
         await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-MERCHANT"
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-MERCHANT"
         );
 
         shipping.Verify(c => c.EstimateShippingOptionsAsync(
@@ -211,7 +217,7 @@ public class OrderServiceTests {
         );
 
         await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-PROBE"
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-PROBE"
         );
 
         shipping.Verify(c => c.EstimateShippingOptionsAsync(
@@ -235,7 +241,7 @@ public class OrderServiceTests {
         );
 
         var result = await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-DEFAULT"
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-DEFAULT"
         );
 
         Assert.Equal("KINETIX_REGULAR", result.ShippingServiceTier);
@@ -265,7 +271,7 @@ public class OrderServiceTests {
         );
 
         await Assert.ThrowsAsync<ShippingUnavailableException>(() => orderService.CheckoutAsync(
-            Customer, new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-DOWN"
+            Customer, new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-DOWN"
         ));
 
         Assert.Empty(dbContext.Orders);
@@ -300,7 +306,7 @@ public class OrderServiceTests {
         var refusal = await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(
                 Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null),
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
                 "IDEMP-KEY-NOSERVICE"
             )
         );
@@ -332,7 +338,7 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_REGULAR"),
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_REGULAR", Buyer, BuyerPhone),
                 "IDEMP-KEY-NOFEE"
             )
         );
@@ -360,7 +366,7 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_REGULAR"),
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_REGULAR", Buyer, BuyerPhone),
                 "IDEMP-KEY-ZEROFEE"
             )
         );
@@ -395,7 +401,7 @@ public class OrderServiceTests {
 
         var refusal = await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-CHEAPEST"
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-CHEAPEST"
             )
         );
 
@@ -427,7 +433,7 @@ public class OrderServiceTests {
 
         var refusal = await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_REGULAR"),
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_REGULAR", Buyer, BuyerPhone),
                 "IDEMP-KEY-UNAFFECTED"
             )
         );
@@ -453,7 +459,7 @@ public class OrderServiceTests {
                 PricingPassingShippingThrough().Object, ShippingReturning(oneUnreadable).Object);
 
             return await Record.ExceptionAsync(() => orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, requestedTier),
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, requestedTier, Buyer, BuyerPhone),
                 $"IDEMP-KEY-DOORS-{requestedTier ?? "NONE"}"
             ));
         }
@@ -478,7 +484,7 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-EMPTY"
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-EMPTY"
             )
         );
 
@@ -507,7 +513,7 @@ public class OrderServiceTests {
 
         var refusal = await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_REGULAR"),
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_REGULAR", Buyer, BuyerPhone),
                 "IDEMP-KEY-DUPLICATE"
             )
         );
@@ -536,7 +542,7 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-DUPLICATE-CHEAPEST"
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-DUPLICATE-CHEAPEST"
             )
         );
 
@@ -560,7 +566,7 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-BLANKTIER"
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-BLANKTIER"
             )
         );
 
@@ -587,7 +593,7 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-LONGTIER"
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-LONGTIER"
             )
         );
 
@@ -610,7 +616,7 @@ public class OrderServiceTests {
 
         var refusal = await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_INSTANT"),
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_INSTANT", Buyer, BuyerPhone),
                 "IDEMP-KEY-CONTRADICTORY"
             )
         );
@@ -645,7 +651,7 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<CartItemsHaveNoMerchantException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-NOMERCHANT"
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-NOMERCHANT"
             )
         );
 
@@ -668,7 +674,7 @@ public class OrderServiceTests {
 
         var refusal = await Assert.ThrowsAsync<ShippingTierNotEstablishedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_CARGO"),
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_CARGO", Buyer, BuyerPhone),
                 "IDEMP-KEY-CARGO"));
 
         Assert.Equal("KINETIX_CARGO", refusal.RequestedTier);
@@ -689,7 +695,7 @@ public class OrderServiceTests {
 
         var refusal = await Assert.ThrowsAsync<ShippingTierUnknownException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_TELEPORT"),
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_TELEPORT", Buyer, BuyerPhone),
                 "IDEMP-KEY-TELEPORT"));
 
         Assert.Equal("KINETIX_TELEPORT", refusal.RequestedTier);
@@ -706,7 +712,7 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<ShippingTierUnknownException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "kinetix_instant"),
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "kinetix_instant", Buyer, BuyerPhone),
                 "IDEMP-KEY-CASE"));
     }
 
@@ -725,7 +731,7 @@ public class OrderServiceTests {
 
         var refusal = await Assert.ThrowsAsync<ShippingFeeContradictedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-CONTRADICT"));
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-CONTRADICT"));
 
         Assert.Equal(9000m, refusal.QuotedBase);
         Assert.Empty(dbContext.Orders);
@@ -747,7 +753,7 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<ShippingFeeContradictedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-NEGATIVE"));
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-NEGATIVE"));
 
         Assert.Empty(dbContext.Orders);
     }
@@ -766,12 +772,34 @@ public class OrderServiceTests {
             ShippingReturning(RateCardFloor()).Object, escrow.Object);
 
         var result = await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "FREE_SHIP"), "IDEMP-KEY-FREESHIP");
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "FREE_SHIP", null, Buyer, BuyerPhone), "IDEMP-KEY-FREESHIP");
 
         Assert.Equal(9000m, result.BaseShippingFee);
         Assert.Equal(0m, result.FinalShippingFee);
         escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), 0m), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(null, "081200000000", "recipientName")]
+    [InlineData("", "081200000000", "recipientName")]
+    [InlineData("   ", "081200000000", "recipientName")]
+    [InlineData("Test Buyer", null, "recipientPhone")]
+    [InlineData("Test Buyer", "  ", "recipientPhone")]
+    public async Task CheckoutAsync_RefusesAnOrderWithNobodyToDeliverTo(
+        string? name, string? phone, string expectedField
+    ) {
+        using var dbContext = GetInMemoryDbContext();
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, ShippingReturning(RateCardFloor()).Object);
+
+        var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, name, phone);
+
+        var thrown = await Assert.ThrowsAsync<RecipientMissingException>(
+            () => orderService.CheckoutAsync(Customer, request, "IDEMP-KEY-NO-RECIPIENT")
+        );
+        Assert.Equal(expectedField, thrown.Field);
+        Assert.Empty(dbContext.Orders);
     }
 
     [Fact]
@@ -785,7 +813,7 @@ public class OrderServiceTests {
             .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 15000m, 0m, 15000m, 195000m, []));
 
         var orderService = NewOrderService(dbContext, cartService.Object, pricing.Object, shipping.Object);
-        var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "DISCOUNT10", "KINETIX_INSTANT");
+        var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "DISCOUNT10", "KINETIX_INSTANT", Buyer, BuyerPhone);
 
         var result = await orderService.CheckoutAsync(Customer, request, "IDEMP-KEY-12345");
 
@@ -889,7 +917,7 @@ public class OrderServiceTests {
             PricingPassingShippingThrough().Object, ShippingReturning(priced).Object);
 
         var result = await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-DISTANCEQUOTED");
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-DISTANCEQUOTED");
 
         Assert.Equal(660.0, result.DistanceKm);
         Assert.Equal(58500m, result.BaseShippingFee);
@@ -909,7 +937,7 @@ public class OrderServiceTests {
             PricingPassingShippingThrough().Object, ShippingReturning(envelopeDisagrees).Object);
 
         var result = await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-ENVELOPE");
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-ENVELOPE");
 
         Assert.Equal(660.0, result.DistanceKm);
         Assert.Equal("DISTANCE_QUOTED", result.ShippingQuoteBasis);
@@ -923,7 +951,7 @@ public class OrderServiceTests {
             PricingPassingShippingThrough().Object, ShippingReturning(RateCardFloor()).Object);
 
         var result = await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-STILLFLOOR");
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-STILLFLOOR");
 
         Assert.Equal(0.0, result.DistanceKm);
         Assert.Equal("TIER_FLOOR", result.ShippingQuoteBasis);
@@ -944,7 +972,7 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<OrderAmountsUnchargeableException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-TOTALGAP"));
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-TOTALGAP"));
 
         Assert.Empty(dbContext.Orders);
         Assert.Empty(dbContext.CheckoutSagas);
@@ -968,7 +996,7 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<OrderAmountsUnchargeableException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-OVERDISCOUNT"));
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-OVERDISCOUNT"));
 
         Assert.Empty(dbContext.Orders);
         escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
@@ -992,7 +1020,7 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<OrderAmountsUnchargeableException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), "IDEMP-KEY-SUBMINOR"));
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-SUBMINOR"));
 
         Assert.Empty(dbContext.Orders);
         Assert.Empty(dbContext.CheckoutSagas);
@@ -1029,7 +1057,7 @@ public class OrderServiceTests {
                 PricingPassingShippingThrough().Object, ShippingReturning(RateCardFloor()).Object);
 
             return await Record.ExceptionAsync(() => orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null), key));
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), key));
         }
 
         var empty = await Outcome(EmptyCart().Object, "IDEMP-KEY-EMPTYCART");

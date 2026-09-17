@@ -29,6 +29,7 @@ public class OrderService(
     private readonly ILogger<OrderService> _logger = logger;
 
     public async Task<OrderResponse> CheckoutAsync(string customerPrincipalId, CheckoutRequest request, string? idempotencyKey) {
+        RequireRecipient(request);
         if (!string.IsNullOrEmpty(idempotencyKey)) {
             var existingOrder = await _dbContext.Orders
                 .Include(o => o.Items)
@@ -138,6 +139,8 @@ public class OrderService(
             MerchantAmount: merchantAmount,
             ShippingFeeAmount: priceResult.FinalShippingFee,
             ShippingAddress: request.ShippingAddress,
+            RecipientName: request.RecipientName ?? string.Empty,
+            RecipientPhone: request.RecipientPhone ?? string.Empty,
             FulfillmentLines: [.. cart.Items.Select(item =>
                 new FulfillmentLine(item.ProductId, item.ProductTitle, item.Quantity, item.UnitPrice)
             )]
@@ -160,6 +163,15 @@ public class OrderService(
         await _cartService.ClearCartAsync(customerPrincipalId);
 
         return MapToOrderResponse(order);
+    }
+
+    private static void RequireRecipient(CheckoutRequest request) {
+        if (string.IsNullOrWhiteSpace(request.RecipientName)) {
+            throw new RecipientMissingException("recipientName");
+        }
+        if (string.IsNullOrWhiteSpace(request.RecipientPhone)) {
+            throw new RecipientMissingException("recipientPhone");
+        }
     }
 
     private static string ResolveMerchantPrincipal(CustomerCart cart) {
