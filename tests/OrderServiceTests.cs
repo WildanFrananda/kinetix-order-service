@@ -73,11 +73,10 @@ public class OrderServiceTests {
 
         var policy = new CompensationPolicy();
         var fulfilment = new Mock<IFulfillmentClient>();
-        fulfilment.Setup(c => c.CreateOrderAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+        fulfilment.Setup(c => c.CreateTaskAsync(It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<IReadOnlyList<FulfillmentLine>>()))
             .ReturnsAsync(new FulfillmentCreated(StepResult.Ok(), "901"));
-        fulfilment.Setup(c => c.CancelOrderAsync(It.IsAny<string>(), It.IsAny<string>()))
+        fulfilment.Setup(c => c.CancelTaskAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
 
         var runner = new CheckoutSagaRunner(db, voucher.Object, flash.Object, stock.Object, escrow,

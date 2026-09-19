@@ -1,3 +1,4 @@
+using Kinetix.OrderService.Application.Fulfillment;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -175,11 +176,20 @@ builder.Services.AddGrpcClient<Fulfillment.V1.BinStockService.BinStockServiceCli
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
 
-builder.Services.AddGrpcClient<Fulfillment.V1.FulfillmentService.FulfillmentServiceClient>(options => {
+builder.Services.AddGrpcClient<Fulfillment.V1.FulfillmentTaskService.FulfillmentTaskServiceClient>(options => {
     options.Address = warehouseAddress;
 }).ConfigurePrimaryHttpMessageHandler(MeshHandler)
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
       warehouseAddress.Host, services.GetRequiredService<KinetixMetrics>()
+  ))
+  .AddInterceptor<RequestIdForwardingInterceptor>()
+  .AddInterceptor<GrpcDeadlineInterceptor>();
+
+builder.Services.AddGrpcClient<Fleet.V1.CourierTelemetryService.CourierTelemetryServiceClient>(options => {
+    options.Address = matchingAddress;
+}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+  .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
+      matchingAddress.Host, services.GetRequiredService<KinetixMetrics>()
   ))
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
@@ -236,6 +246,7 @@ builder.Services.AddScoped<IFlashSaleClient, FlashSaleGrpcClient>();
 builder.Services.AddScoped<IStockClient, StockGrpcClient>();
 builder.Services.AddScoped<IEscrowClient, EscrowGrpcClient>();
 builder.Services.AddScoped<IFulfillmentClient, FulfillmentGrpcClient>();
+builder.Services.AddScoped<IFulfillmentPackedHandler, FulfillmentPackedHandler>();
 
 builder.Services.AddSingleton<SagaWorkerIdentity>();
 builder.Services.AddSingleton(CompensationPolicy.FromConfiguration(builder.Configuration));
@@ -264,8 +275,9 @@ var metrics = app.Services.GetRequiredService<KinetixMetrics>();
 metrics.RegisterGrpcServerSurface(Order.V1.OrderService.Descriptor);
 metrics.RegisterGrpcClientSurface(pricingAddress.Host, Pricing.V1.PricingService.Descriptor);
 metrics.RegisterGrpcClientSurface(matchingAddress.Host, Shipping.V1.ShippingService.Descriptor);
+metrics.RegisterGrpcClientSurface(matchingAddress.Host, Fleet.V1.CourierTelemetryService.Descriptor);
 metrics.RegisterGrpcClientSurface(warehouseAddress.Host, Fulfillment.V1.BinStockService.Descriptor);
-metrics.RegisterGrpcClientSurface(warehouseAddress.Host, Fulfillment.V1.FulfillmentService.Descriptor);
+metrics.RegisterGrpcClientSurface(warehouseAddress.Host, Fulfillment.V1.FulfillmentTaskService.Descriptor);
 metrics.RegisterGrpcClientSurface(paymentAddress.Host, Payment.V1.PaymentService.Descriptor);
 
 var drain = app.Services.GetRequiredService<DrainState>();

@@ -22,6 +22,8 @@
     <Protobuf Include=".contracts/proto/identity/v1/identity.proto" ProtoRoot=".contracts/proto" GrpcServices="Client" />
     <!-- The saga reserves stock and gives it back; both live on BinStockService. -->
     <Protobuf Include=".contracts/proto/fulfillment/v1/fulfillment.proto" ProtoRoot=".contracts/proto" GrpcServices="Client" />
+    <Protobuf Include=".contracts/proto/fulfillment/v1/task.proto" ProtoRoot=".contracts/proto" GrpcServices="Client" />
+    <Protobuf Include=".contracts/proto/fleet/v1/fleet.proto" ProtoRoot=".contracts/proto" GrpcServices="Client" />
     <Protobuf Include=".contracts/proto/order/v1/order.proto" ProtoRoot=".contracts/proto" GrpcServices="Server" />
     <Protobuf Include=".contracts/proto/common/v1/common.proto" ProtoRoot=".contracts/proto" GrpcServices="None" />
   </ItemGroup>

@@ -67,6 +67,16 @@ public class Order {
     [Column("shipping_address")]
     public string ShippingAddress { get; set; } = string.Empty;
 
+    [Required]
+    [MaxLength(128)]
+    [Column("recipient_name")]
+    public string RecipientName { get; set; } = string.Empty;
+
+    [Required]
+    [MaxLength(32)]
+    [Column("recipient_phone")]
+    public string RecipientPhone { get; set; } = string.Empty;
+
     [MaxLength(100)]
     [Column("idempotency_key")]
     public string? IdempotencyKey { get; set; }
