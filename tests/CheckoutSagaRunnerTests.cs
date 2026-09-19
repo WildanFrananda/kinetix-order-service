@@ -40,7 +40,7 @@ public class CheckoutSagaRunnerTests {
         ShippingAddress: "Jl. Test 1, Jakarta",
         RecipientName: "Test Buyer",
         RecipientPhone: "081200000000",
-        FulfillmentLines: [.. skus.Select(sku => new FulfillmentLine(sku, $"Product {sku}", 1, 100000m))]
+        FulfillmentLines: [.. skus.Select(sku => new FulfillmentLine(sku, 1))]
     );
 
     private static (Mock<IVoucherQuotaClient>, Mock<IFlashSaleClient>, Mock<IStockClient>, Mock<IEscrowClient>) AllAgreeing() {
@@ -76,11 +76,10 @@ public class CheckoutSagaRunnerTests {
 
     private static Mock<IFulfillmentClient> AcceptingFulfillment() {
         var mock = new Mock<IFulfillmentClient>();
-        mock.Setup(c => c.CreateOrderAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+        mock.Setup(c => c.CreateTaskAsync(It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<IReadOnlyList<FulfillmentLine>>()))
             .ReturnsAsync(new FulfillmentCreated(StepResult.Ok(), "901"));
-        mock.Setup(c => c.CancelOrderAsync(It.IsAny<string>(), It.IsAny<string>()))
+        mock.Setup(c => c.CancelTaskAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
         return mock;
     }
@@ -124,8 +123,8 @@ public class CheckoutSagaRunnerTests {
             .RunAsync(PlanWith(null, ["SKU-1"]));
 
         Assert.True(outcome.Succeeded);
-        fulfilment.Verify(c => c.CreateOrderAsync(
-            Merchant, "ORD-TEST-0001", "Jl. Test 1, Jakarta", "Test Buyer", "081200000000", 120000m,
+        fulfilment.Verify(c => c.CreateTaskAsync(
+            Merchant, "ORD-TEST-0001",
             It.Is<IReadOnlyList<FulfillmentLine>>(l => l.Count == 1 && l[0].Sku == "SKU-1")
         ), Times.Once);
     }
@@ -135,8 +134,7 @@ public class CheckoutSagaRunnerTests {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
         var fulfilment = new Mock<IFulfillmentClient>();
-        fulfilment.Setup(c => c.CreateOrderAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<decimal>(),
+        fulfilment.Setup(c => c.CreateTaskAsync(It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<IReadOnlyList<FulfillmentLine>>()))
             .ReturnsAsync(new FulfillmentCreated(StepResult.Refused("that merchant is unknown here"), string.Empty));
 

@@ -227,13 +227,9 @@ public class CheckoutSagaRunner(
 
         var fulfilmentStep = await BeginStep(saga, SagaStepName.CreateFulfillmentOrder, plan.OrderNumber, 1,
             plan.MerchantPrincipalId);
-        var created = await _fulfillmentClient.CreateOrderAsync(
+        var created = await _fulfillmentClient.CreateTaskAsync(
             plan.MerchantPrincipalId,
             plan.OrderNumber,
-            plan.ShippingAddress,
-            plan.RecipientName,
-            plan.RecipientPhone,
-            plan.TotalOrderAmount,
             plan.FulfillmentLines);
 
         if (!string.IsNullOrWhiteSpace(created.WarehouseOrderId)) {
@@ -456,7 +452,7 @@ public class CheckoutSagaRunner(
                     await _stockClient.ReleaseStockAsync(
                         step.MerchantPrincipalId, step.Reference, step.Quantity, saga.OrderNumber),
                 SagaStepName.CreateFulfillmentOrder =>
-                    await _fulfillmentClient.CancelOrderAsync(step.MerchantPrincipalId, step.Reference),
+                    await _fulfillmentClient.CancelTaskAsync(step.MerchantPrincipalId, step.Reference),
                 _ =>
                     await _flashSaleClient.ReleaseAsync(
                         step.Reference, step.ProductId ?? string.Empty, step.Quantity, saga.OrderNumber),

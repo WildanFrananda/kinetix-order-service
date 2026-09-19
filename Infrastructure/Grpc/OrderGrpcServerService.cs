@@ -5,8 +5,12 @@ using OrderProto = global::Order.V1;
 
 namespace Kinetix.OrderService.Infrastructure.Grpc;
 
-public class OrderGrpcServerService(IOrderService orderService) : OrderProto.OrderService.OrderServiceBase {
+public class OrderGrpcServerService(
+    IOrderService orderService,
+    IFulfillmentPackedHandler fulfillmentPacked
+) : OrderProto.OrderService.OrderServiceBase {
     private readonly IOrderService _orderService = orderService;
+    private readonly IFulfillmentPackedHandler _fulfillmentPacked = fulfillmentPacked;
 
     private const long MinorPerMajor = 100L;
 
@@ -114,6 +118,40 @@ public class OrderGrpcServerService(IOrderService orderService) : OrderProto.Ord
         return new Money {
             AmountMinor = (long)Math.Round(amount * MinorPerMajor, MidpointRounding.AwayFromZero),
             Currency = "IDR"
+        };
+    }
+
+    public override async Task<OrderProto.FulfillmentPackedResponse> FulfillmentPacked(
+        OrderProto.FulfillmentPackedRequest request, ServerCallContext context
+    ) {
+        if (string.IsNullOrWhiteSpace(request.OrderNumber)) {
+            return new OrderProto.FulfillmentPackedResponse {
+                Success = false,
+                Error = new ErrorDetail {
+                    ErrorCode = "BLANK_ORDER_NUMBER",
+                    Message = "order_number is required: a packed parcel belongs to a named order"
+                }
+            };
+        }
+
+        var outcome = await _fulfillmentPacked.HandleAsync(
+            request.MerchantPrincipalId, request.OrderNumber, request.FulfillmentTaskId
+        );
+
+        if (!outcome.Found) {
+            return new OrderProto.FulfillmentPackedResponse {
+                Success = false,
+                Error = new ErrorDetail {
+                    ErrorCode = "NO_SUCH_ORDER",
+                    Message = outcome.Detail ?? "no order carries that number"
+                }
+            };
+        }
+
+        return new OrderProto.FulfillmentPackedResponse {
+            Success = true,
+            AlreadyPacked = outcome.AlreadyPacked,
+            DispatchRef = outcome.DispatchRef
         };
     }
 

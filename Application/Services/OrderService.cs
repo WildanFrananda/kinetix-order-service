@@ -108,6 +108,8 @@ public class OrderService(
             DistanceKm = shippingQuote.DistanceKm,
             ShippingQuoteBasis = shippingQuote.Basis,
             ShippingAddress = request.ShippingAddress,
+            RecipientName = request.RecipientName ?? string.Empty,
+            RecipientPhone = request.RecipientPhone ?? string.Empty,
             IdempotencyKey = idempotencyKey,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
@@ -142,7 +144,7 @@ public class OrderService(
             RecipientName: request.RecipientName ?? string.Empty,
             RecipientPhone: request.RecipientPhone ?? string.Empty,
             FulfillmentLines: [.. cart.Items.Select(item =>
-                new FulfillmentLine(item.ProductId, item.ProductTitle, item.Quantity, item.UnitPrice)
+                new FulfillmentLine(item.ProductId, item.Quantity)
             )]
         );
 

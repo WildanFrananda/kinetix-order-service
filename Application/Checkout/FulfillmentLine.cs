@@ -1,3 +1,3 @@
 namespace Kinetix.OrderService.Application.Checkout;
 
-public record FulfillmentLine(string Sku, string ProductName, int Quantity, decimal UnitPrice);
+public record FulfillmentLine(string Sku, int Quantity);
