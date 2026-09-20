@@ -11,9 +11,14 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
     public DbSet<CheckoutSaga> CheckoutSagas => Set<CheckoutSaga>();
     public DbSet<CheckoutSagaStep> CheckoutSagaSteps => Set<CheckoutSagaStep>();
     public DbSet<CompensationAttempt> CompensationAttempts => Set<CompensationAttempt>();
+    public DbSet<ShippingSettlement> ShippingSettlements => Set<ShippingSettlement>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<ShippingSettlement>(entity => {
+            entity.HasIndex(e => new { e.SettledAt, e.NextAttemptAt });
+        });
 
         modelBuilder.Entity<OrderEntity>(entity => {
             entity.HasIndex(e => e.OrderNumber).IsUnique();
