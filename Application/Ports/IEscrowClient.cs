@@ -15,5 +15,7 @@ public interface IEscrowClient {
 
     Task<StepResult> RefundHoldAsync(string orderNumber, string reason);
 
+    Task<StepResult> SettleShippingFeeAsync(string orderNumber, string driverPrincipalId);
+
     Task<EscrowStanding> GetStandingAsync(string orderNumber);
 }

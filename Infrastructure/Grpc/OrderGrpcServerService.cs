@@ -7,10 +7,12 @@ namespace Kinetix.OrderService.Infrastructure.Grpc;
 
 public class OrderGrpcServerService(
     IOrderService orderService,
-    IFulfillmentPackedHandler fulfillmentPacked
+    IFulfillmentPackedHandler fulfillmentPacked,
+    IOrderDeliveredHandler orderDelivered
 ) : OrderProto.OrderService.OrderServiceBase {
     private readonly IOrderService _orderService = orderService;
     private readonly IFulfillmentPackedHandler _fulfillmentPacked = fulfillmentPacked;
+    private readonly IOrderDeliveredHandler _orderDelivered = orderDelivered;
 
     private const long MinorPerMajor = 100L;
 
@@ -50,11 +52,13 @@ public class OrderGrpcServerService(
     }
 
     public override async Task<OrderProto.ListOrdersForPrincipalResponse> ListOrdersForPrincipal(
-        OrderProto.ListOrdersForPrincipalRequest request, ServerCallContext context) {
+        OrderProto.ListOrdersForPrincipalRequest request, ServerCallContext context
+    ) {
 
         if (string.IsNullOrWhiteSpace(request.PrincipalId)) {
             throw new RpcException(new Status(
-                StatusCode.InvalidArgument, "a principal id is required"));
+                StatusCode.InvalidArgument, "a principal id is required"
+            ));
         }
 
         var page = request.Page > 0 ? request.Page : 1;
@@ -67,7 +71,8 @@ public class OrderGrpcServerService(
         }
 
         var result = await _orderService.GetCustomerOrdersAsync(
-            request.PrincipalId, requestedStatus, page, pageSize);
+            request.PrincipalId, requestedStatus, page, pageSize
+        );
 
         var response = new OrderProto.ListOrdersForPrincipalResponse {
             TotalCount = result.TotalCount
@@ -152,6 +157,57 @@ public class OrderGrpcServerService(
             Success = true,
             AlreadyPacked = outcome.AlreadyPacked,
             DispatchRef = outcome.DispatchRef
+        };
+    }
+
+    public override async Task<OrderProto.OrderDeliveredResponse> OrderDelivered(
+        OrderProto.OrderDeliveredRequest request, ServerCallContext context
+    ) {
+        if (string.IsNullOrWhiteSpace(request.OrderNumber)) {
+            return new OrderProto.OrderDeliveredResponse {
+                Accepted = false,
+                Error = new ErrorDetail {
+                    ErrorCode = "BLANK_ORDER_NUMBER",
+                    Message = "order_number is required: a delivery belongs to a named order"
+                }
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(request.DriverPrincipalId)) {
+            return new OrderProto.OrderDeliveredResponse {
+                Accepted = false,
+                Error = new ErrorDetail {
+                    ErrorCode = "BLANK_DRIVER_PRINCIPAL",
+                    Message = "driver_principal_id is required: a fee with no payee is owed to nobody"
+                }
+            };
+        }
+
+        var deliveredAt = DateTime.TryParse(
+            request.DeliveredAt,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AdjustToUniversal
+                | System.Globalization.DateTimeStyles.AssumeUniversal,
+            out var parsed
+        ) ? parsed : DateTime.UtcNow;
+
+        var outcome = await _orderDelivered.HandleAsync(
+            request.OrderNumber, request.DriverPrincipalId, deliveredAt
+        );
+
+        if (!outcome.Accepted) {
+            return new OrderProto.OrderDeliveredResponse {
+                Accepted = false,
+                Error = new ErrorDetail {
+                    ErrorCode = "NO_SUCH_ORDER",
+                    Message = outcome.Error ?? "no order carries that number"
+                }
+            };
+        }
+
+        return new OrderProto.OrderDeliveredResponse {
+            Accepted = true,
+            AlreadyDelivered = outcome.AlreadyDelivered
         };
     }
 

@@ -91,6 +91,39 @@ public class EscrowGrpcClient(
         );
     }
 
+    public async Task<StepResult> SettleShippingFeeAsync(
+        string orderNumber, string driverPrincipalId
+    ) {
+        if (string.IsNullOrWhiteSpace(driverPrincipalId)) {
+            _logger.LogError(
+                "refusing to settle the shipping fee for {Order}: no courier principal was given, "
+              + "and a payment with no payee is a payment to nobody",
+                orderNumber
+            );
+
+            return StepResult.Absent(false, "no courier principal");
+        }
+
+        var response = await _client.SettleShippingFeeAsync(new PaymentProto.SettleShippingFeeRequest {
+            OrderNumber = orderNumber,
+            DriverPrincipalId = driverPrincipalId,
+            IdempotencyKey = KeyFor(orderNumber),
+        });
+
+        if (response.Found) {
+            return response.AlreadyApplied ? StepResult.Repeat() : StepResult.Ok();
+        }
+
+        _logger.LogWarning(
+            "payment reported no escrow hold to settle for {Order} (already_applied: {AlreadyApplied})",
+            orderNumber, response.AlreadyApplied
+        );
+
+        return StepResult.Absent(
+            response.AlreadyApplied, "payment held nothing to settle for this order"
+        );
+    }
+
     public async Task<EscrowStanding> GetStandingAsync(string orderNumber) {
         var response = await _client.GetEscrowStatusAsync(new PaymentProto.GetEscrowStatusRequest {
             OrderNumber = orderNumber,
