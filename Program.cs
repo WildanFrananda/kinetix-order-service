@@ -164,9 +164,11 @@ builder.Services.AddGrpcClient<Shipping.V1.ShippingService.ShippingServiceClient
   .AddInterceptor<GrpcDeadlineInterceptor>();
 
 var warehouseGrpcUrl = builder.Configuration["WAREHOUSE_GRPC_URL"] ?? "http://kinetix-warehouse-grpc:50051";
+var identityGrpcUrl = builder.Configuration["IDENTITY_GRPC_URL"] ?? "http://kinetix-identity-service:50052";
 var paymentGrpcUrl = builder.Configuration["PAYMENT_GRPC_URL"] ?? "http://kinetix-payment-service:50056";
 var warehouseAddress = AsMesh(warehouseGrpcUrl);
 var paymentAddress = AsMesh(paymentGrpcUrl);
+var identityAddress = AsMesh(identityGrpcUrl);
 
 builder.Services.AddGrpcClient<Fulfillment.V1.BinStockService.BinStockServiceClient>(options => {
     options.Address = warehouseAddress;
@@ -203,6 +205,17 @@ builder.Services.AddGrpcClient<Payment.V1.PaymentService.PaymentServiceClient>(o
   ))
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
+
+builder.Services.AddGrpcClient<Identity.V1.IdentityService.IdentityServiceClient>(options => {
+    options.Address = identityAddress;
+}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+  .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
+      identityAddress.Host, services.GetRequiredService<KinetixMetrics>()
+  ))
+  .AddInterceptor<RequestIdForwardingInterceptor>()
+  .AddInterceptor<GrpcDeadlineInterceptor>();
+
+builder.Services.AddScoped<IAddressDirectory, IdentityAddressDirectory>();
 
 builder.Services.AddGrpc(options => {
     options.Interceptors.Add<GrpcServerCallMetricsInterceptor>();
