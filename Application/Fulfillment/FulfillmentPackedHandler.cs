@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Grpc.Core;
 using Common.V1;
+using CommonProto = global::Common.V1;
 using Fleet.V1;
 using Kinetix.OrderService.Application.Ports;
 using DomainStatus = Kinetix.OrderService.Domain.Enums.OrderStatus;
@@ -11,10 +12,12 @@ namespace Kinetix.OrderService.Application.Fulfillment;
 public class FulfillmentPackedHandler(
     OrderDbContext dbContext,
     CourierTelemetryService.CourierTelemetryServiceClient courierClient,
+    IAddressDirectory addresses,
     ILogger<FulfillmentPackedHandler> logger
 ) : IFulfillmentPackedHandler {
     private readonly OrderDbContext _dbContext = dbContext;
     private readonly CourierTelemetryService.CourierTelemetryServiceClient _courierClient = courierClient;
+    private readonly IAddressDirectory _addresses = addresses;
     private readonly ILogger<FulfillmentPackedHandler> _logger = logger;
 
     public async Task<FulfillmentPackedOutcome> HandleAsync(
@@ -45,15 +48,34 @@ public class FulfillmentPackedHandler(
         string merchantPrincipalId,
         string fulfillmentTaskId
     ) {
+        var pickup = await _addresses.PickupPointAsync(merchantPrincipalId);
+        var delivery = await _addresses.DeliveryPointAsync(order.CustomerPrincipalId);
+
+        if (pickup is null || delivery is null) {
+            _logger.LogError(
+                "{Order} is packed (warehouse task {Task}) and no courier was dispatched: "
+              + "{Missing} has no point. Identity geocodes an address when it is saved, so this "
+              + "means the address was never placed.",
+                order.OrderNumber, fulfillmentTaskId,
+                pickup is null && delivery is null ? "neither end"
+                    : pickup is null ? "the merchant's store" : "the delivery address"
+            );
+
+            return string.Empty;
+        }
+
         try {
             var response = await _courierClient.DispatchCourierAsync(new DispatchCourierRequest {
                 MerchantPrincipalId = merchantPrincipalId,
                 OrderId = order.Id.ToString(),
                 OrderNumber = order.OrderNumber,
-                DeliveryAddress = new Address {
-                    StreetAddress = order.ShippingAddress,
-                    RecipientName = order.RecipientName,
-                    PhoneNumber = order.RecipientPhone,
+                PickupPoint = new CommonProto.GeoPoint {
+                    Latitude = pickup.Latitude,
+                    Longitude = pickup.Longitude,
+                },
+                DeliveryPoint = new CommonProto.GeoPoint {
+                    Latitude = delivery.Latitude,
+                    Longitude = delivery.Longitude,
                 },
             });
 
