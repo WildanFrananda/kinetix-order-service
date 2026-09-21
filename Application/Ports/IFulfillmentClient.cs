@@ -10,4 +10,11 @@ public interface IFulfillmentClient {
     );
 
     Task<StepResult> CancelTaskAsync(string merchantPrincipalId, string fulfillmentTaskId);
+
+    Task<StepResult> RecordCourierAwbAsync(
+        string merchantPrincipalId,
+        string fulfillmentTaskId,
+        string orderNumber,
+        string awbNumber
+    );
 }

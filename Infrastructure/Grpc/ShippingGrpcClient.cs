@@ -14,10 +14,6 @@ public class ShippingGrpcClient(
     private readonly ShippingService.ShippingServiceClient _client = client;
     private readonly ILogger<ShippingGrpcClient> _logger = logger;
 
-    private const long MinorPerMajor = 100L;
-
-    private const string Currency = "IDR";
-
     public async Task<EstimateShippingResult> EstimateShippingOptionsAsync(
         double originLat,
         double originLng,
@@ -61,31 +57,10 @@ public class ShippingGrpcClient(
             throw new ShippingUnavailableException(ex);
         }
 
-        var foreignCurrency = response.Options
-            .Where(o => o.IsAvailable
-                     && o.BaseShippingFee is not null
-                     && o.BaseShippingFee.Currency != Currency)
-            .Select(o => $"{o.ServiceTier} priced in '{o.BaseShippingFee?.Currency}'")
-            .ToList();
-
-        if (foreignCurrency.Count > 0) {
-            _logger.LogError(
-                "matching quoted an available tier in a currency order cannot debit ({Quotes}); "
-              + "order prices in {Currency} only and converts nothing, so this quote is refused "
-              + "rather than read as a number of rupiah",
-                string.Join(", ", foreignCurrency), Currency
-            );
-
-            throw new ShippingQuoteMalformedException(
-                $"available options quoted in a currency order cannot debit: {string.Join(", ", foreignCurrency)}"
-            );
-        }
-
         var options = response.Options.Select(opt => new ShippingOptionResult(
             opt.ServiceTier,
             opt.ServiceName,
             opt.DistanceKm,
-            opt.BaseShippingFee is null ? null : (decimal)opt.BaseShippingFee.AmountMinor / MinorPerMajor,
             opt.EstimatedDeliveryTime,
             opt.IsAvailable,
             string.IsNullOrWhiteSpace(opt.UnavailableReason) ? null : opt.UnavailableReason

@@ -15,19 +15,61 @@ public class PricingGrpcClient(
 
     private const long MinorPerMajor = 100L;
 
-    public async Task<PriceCalculationResult> CalculatePriceAsync(
-        string? voucherCode, IReadOnlyList<PriceLine> lines, decimal baseShippingFee
+    public async Task<IReadOnlyList<QuotedShippingResult>> QuoteShippingAsync(
+        IReadOnlyList<ShippingJourney> journeys
     ) {
 
-        if (lines.Count == 0 && baseShippingFee <= 0m) {
+        if (journeys.Count == 0) {
+            return [];
+        }
+
+        try {
+            var request = new QuoteShippingRequest();
+
+            foreach (var journey in journeys) {
+                request.Journeys.Add(ToJourney(journey));
+            }
+
+            var response = await _client.QuoteShippingAsync(request);
+
+            return [.. response.Quotes.Select(quote => new QuotedShippingResult(
+                quote.ServiceTier,
+                quote.BaseShippingFee is null ? 0m : FromMoney(quote.BaseShippingFee),
+                quote.Priced
+            ))];
+        } catch (Exception ex) {
+            _logger.LogError(
+                ex, "pricing did not answer QuoteShipping, so this checkout is refused rather "
+                  + "than shipped at a fee nobody quoted"
+            );
+
+            throw new PricingUnavailableException(ex);
+        }
+    }
+
+    private static Pricing.V1.ShippingQuoteRequest ToJourney(ShippingJourney journey) =>
+        new() {
+            ServiceTier = journey.ServiceTier,
+            DistanceKm = journey.DistanceKm,
+            TotalWeightGrams = journey.TotalWeightGrams
+        };
+
+    public async Task<PriceCalculationResult> CalculatePriceAsync(
+        string? voucherCode, IReadOnlyList<PriceLine> lines, ShippingJourney? shipping
+    ) {
+
+        if (lines.Count == 0 && shipping is null) {
             return new PriceCalculationResult(0m, 0m, 0m, 0m, 0m, 0m, []);
         }
 
         try {
             var request = new CalculatePriceRequest {
-                VoucherCode = voucherCode ?? string.Empty,
-                BaseShippingFee = ToMoney(baseShippingFee)
+                VoucherCode = voucherCode ?? string.Empty
             };
+
+            if (shipping is not null) {
+                request.Shipping = ToJourney(shipping);
+            }
 
             foreach (var line in lines) {
                 request.Items.Add(new PriceItemRequest {
