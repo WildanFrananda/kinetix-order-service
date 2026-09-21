@@ -58,18 +58,19 @@ public class OrderService(
             .Select(i => new PriceLine(i.ProductId, i.CategoryId, i.UnitPrice, i.Quantity))
             .ToList();
 
-        var priceResult = await _pricingClient.CalculatePriceAsync(appliedVoucher, priceLines, baseShippingFee);
+        var priceResult = await _pricingClient.CalculatePriceAsync(
+            appliedVoucher, priceLines, shippingQuote.Journey
+        );
 
-        if (priceResult.BaseShippingFee != baseShippingFee
-            || priceResult.FinalShippingFee < 0m
-            || priceResult.FinalShippingFee > baseShippingFee
+        if (priceResult.FinalShippingFee < 0m
+            || priceResult.FinalShippingFee > priceResult.BaseShippingFee
         ) {
 
             _logger.LogError(
-                "pricing contradicted matching's shipping quote: quoted base {QuotedBase}, pricing "
-              + "returned base {PricingBase} and final {PricingFinal}. Refusing rather than "
-              + "debiting a fee that no longer descends from the rate card.",
-                baseShippingFee, priceResult.BaseShippingFee, priceResult.FinalShippingFee
+                "pricing returned a final shipping fee of {PricingFinal} against a base of "
+              + "{PricingBase}, which is not a discount of its own quote. Refusing before an "
+              + "order row exists rather than debiting it.",
+                priceResult.FinalShippingFee, priceResult.BaseShippingFee
             );
 
             throw new ShippingFeeContradictedException(
@@ -220,13 +221,8 @@ public class OrderService(
         return faults;
     }
 
-    private static bool IsPriced(ShippingOptionResult option) => option.BaseShippingFee is > 0m;
-
     private static string Name(ShippingOptionResult option) =>
         string.IsNullOrWhiteSpace(option.ServiceTier) ? "an unnamed tier" : $"'{option.ServiceTier}'";
-
-    private static string Fee(ShippingOptionResult option) =>
-        option.BaseShippingFee is null ? "no fee at all" : Amount(option.BaseShippingFee.Value);
 
     private static string Describe(ShippingOptionResult option) =>
         option.UnavailableReason is null ? option.ServiceTier : $"{option.ServiceTier}: {option.UnavailableReason}";
@@ -254,17 +250,14 @@ public class OrderService(
                 );
             }
 
-            if (!IsPriced(option)) {
-                faults.Add($"{Name(option)} is offered as available with no usable fee ({Fee(option)})");
-            }
         }
 
         faults.AddRange(options
             .GroupBy(o => o.ServiceTier, StringComparer.Ordinal)
             .Where(tier => tier.Count() > 1)
             .Select(tier =>
-                $"'{tier.Key}' is listed {tier.Count()} times, at {string.Join(" and ", tier.Select(Fee))}, "
-              + "so which of those fees is the price cannot be told"
+                $"'{tier.Key}' is listed {tier.Count()} times, so which of those entries describes "
+              + "the journey cannot be told"
             )
         );
 
@@ -281,7 +274,7 @@ public class OrderService(
         return faults;
     }
 
-    private SelectedShippingQuote Establish(ShippingOptionResult option) {
+    private SelectedShippingQuote Establish(ShippingOptionResult option, QuotedShippingResult quoted) {
         var basis = option.DistanceKm == ShippingRateCardProbe.ExpectedDistanceKm
             ? ShippingQuoteBasis.TIER_FLOOR
             : ShippingQuoteBasis.DISTANCE_QUOTED;
@@ -291,15 +284,22 @@ public class OrderService(
                 "{Tier} was priced at {Fee} against {DistanceKm}km, not the "
               + "{ExpectedDistanceKm}km the rate-card probe asks at, so this order's fee is not a "
               + "tier floor and its row is stamped {Basis}",
-                option.ServiceTier, option.BaseShippingFee!.Value, option.DistanceKm,
+                option.ServiceTier, quoted.BaseShippingFee, option.DistanceKm,
                 ShippingRateCardProbe.ExpectedDistanceKm, basis
             );
         }
 
         return new SelectedShippingQuote(
-            option.ServiceTier, option.BaseShippingFee!.Value, option.DistanceKm, basis
+            option.ServiceTier,
+            quoted.BaseShippingFee,
+            option.DistanceKm,
+            basis,
+            Journey(option)
         );
     }
+
+    private static ShippingJourney Journey(ShippingOptionResult option) =>
+        new(option.ServiceTier, option.DistanceKm, ShippingRateCardProbe.WeightGrams);
 
     private async Task<SelectedShippingQuote> QuoteShippingAsync(string? requestedTier, string merchantPrincipalId) {
         var quote = await _shippingClient.EstimateShippingOptionsAsync(
@@ -345,15 +345,38 @@ public class OrderService(
             throw new ShippingQuoteMalformedException(string.Join("; ", unreadable));
         }
 
-        if (string.IsNullOrWhiteSpace(requestedTier)) {
-            return Establish(quote.Options
-                .Where(o => o.IsAvailable)
-                .OrderBy(o => o.BaseShippingFee!.Value)
-                .ThenBy(o => o.ServiceTier, StringComparer.Ordinal)
-                .First());
-        }
+        var available = quote.Options.Where(o => o.IsAvailable).ToList();
+        var quoted = await _pricingClient.QuoteShippingAsync([.. available.Select(Journey)]);
 
-        var availableTiers = quote.Options.Where(o => o.IsAvailable).Select(o => o.ServiceTier).ToList();
+        var priced = quoted
+            .Where(q => q.Priced)
+            .ToDictionary(q => q.ServiceTier, StringComparer.Ordinal);
+
+        var availableTiers = available.Select(o => o.ServiceTier).ToList();
+
+        if (string.IsNullOrWhiteSpace(requestedTier)) {
+            var cheapest = available
+                .Where(o => priced.ContainsKey(o.ServiceTier))
+                .OrderBy(o => priced[o.ServiceTier].BaseShippingFee)
+                .ThenBy(o => o.ServiceTier, StringComparer.Ordinal)
+                .FirstOrDefault();
+
+            if (cheapest is null) {
+                _logger.LogError(
+                    "the fleet offered {Count} tier(s) for this parcel and pricing holds a rate "
+                  + "for none of them ({Tiers}), so this checkout is refused rather than shipped "
+                  + "at a fee nobody quoted. An unpriced tier is one nobody may be charged for, "
+                  + "not one that is free",
+                    available.Count, string.Join(", ", availableTiers)
+                );
+
+                throw new ShippingTierNotEstablishedException(
+                    "any", "pricing holds no rate for it", availableTiers
+                );
+            }
+
+            return Establish(cheapest, priced[cheapest.ServiceTier]);
+        }
 
         var matches = quote.Options
             .Where(o => string.Equals(o.ServiceTier, requestedTier, StringComparison.Ordinal))
@@ -371,7 +394,13 @@ public class OrderService(
             );
         }
 
-        return Establish(match);
+        if (!priced.TryGetValue(requestedTier, out var quotedTier)) {
+            throw new ShippingTierNotEstablishedException(
+                requestedTier, "pricing holds no rate for it", availableTiers
+            );
+        }
+
+        return Establish(match, quotedTier);
     }
 
     public async Task<OrderResponse?> GetOrderByIdAsync(Guid orderId) {

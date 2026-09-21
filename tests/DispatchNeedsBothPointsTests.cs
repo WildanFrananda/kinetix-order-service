@@ -1,4 +1,5 @@
 using Grpc.Core;
+using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Fulfillment;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Infrastructure.Persistence;
@@ -35,7 +36,11 @@ public class DispatchNeedsBothPointsTests {
             Calls += 1;
             LastRequest = request;
 
-            var response = new DispatchCourierResponse { Success = true, DispatchRef = "FLEET-1" };
+            var response = new DispatchCourierResponse {
+                Success = true,
+                DispatchRef = "FLEET-1",
+                AwbNumber = "KNX-20260921-ABCDEFGH",
+            };
 
             return new AsyncUnaryCall<DispatchCourierResponse>(
                 Task.FromResult(response),
@@ -68,9 +73,58 @@ public class DispatchNeedsBothPointsTests {
         return order;
     }
 
+    private sealed class RecordingWarehouse : IFulfillmentClient {
+        public string? LastAwb { get; private set; }
+        public int AwbCalls { get; private set; }
+
+        public Task<FulfillmentCreated> CreateTaskAsync(
+            string merchantPrincipalId, string orderNumber, IReadOnlyList<FulfillmentLine> lines
+        ) => throw new NotSupportedException("not used by these tests");
+
+        public Task<StepResult> CancelTaskAsync(string merchantPrincipalId, string fulfillmentTaskId)
+            => throw new NotSupportedException("not used by these tests");
+
+        public Task<StepResult> RecordCourierAwbAsync(
+            string merchantPrincipalId, string fulfillmentTaskId, string orderNumber, string awbNumber
+        ) {
+            AwbCalls += 1;
+            LastAwb = awbNumber;
+            return Task.FromResult(StepResult.Ok());
+        }
+    }
+
     private static FulfillmentPackedHandler NewHandler(
-        OrderDbContext db, RecordingCourier courier, IAddressDirectory directory
-    ) => new(db, courier, directory, NullLogger<FulfillmentPackedHandler>.Instance);
+        OrderDbContext db, RecordingCourier courier, IAddressDirectory directory,
+        IFulfillmentClient? warehouse = null
+    ) => new(db, courier, directory, warehouse ?? new RecordingWarehouse(),
+             NullLogger<FulfillmentPackedHandler>.Instance);
+
+    [Fact]
+    public async Task TheTrackingNumberTheFleetIssuedReachesTheWarehouse() {
+        using var db = NewDbContext();
+        await SeedOrder(db);
+        var warehouse = new RecordingWarehouse();
+        var directory = new StubDirectory(new MapPoint(-6.1754, 106.8272), new MapPoint(-6.2088, 106.8456));
+
+        await NewHandler(db, new RecordingCourier(), directory, warehouse)
+            .HandleAsync(Merchant, "ORD-DISPATCH-1", "TASK-1");
+
+        Assert.Equal(1, warehouse.AwbCalls);
+        Assert.Equal("KNX-20260921-ABCDEFGH", warehouse.LastAwb);
+    }
+
+    [Fact]
+    public async Task NoDispatchMeansNothingIsSentToTheWarehouse() {
+        using var db = NewDbContext();
+        await SeedOrder(db);
+        var warehouse = new RecordingWarehouse();
+        var directory = new StubDirectory(null, new MapPoint(-6.2088, 106.8456));
+
+        await NewHandler(db, new RecordingCourier(), directory, warehouse)
+            .HandleAsync(Merchant, "ORD-DISPATCH-1", "TASK-1");
+
+        Assert.Equal(0, warehouse.AwbCalls);
+    }
 
     [Fact]
     public async Task BothPointsAreSentToTheFleet() {

@@ -6,5 +6,6 @@ public record SelectedShippingQuote(
     string ServiceTier,
     decimal BaseShippingFee,
     double DistanceKm,
-    ShippingQuoteBasis Basis
+    ShippingQuoteBasis Basis,
+    ShippingJourney Journey
 );

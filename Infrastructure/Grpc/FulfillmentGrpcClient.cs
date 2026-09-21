@@ -75,4 +75,39 @@ public class FulfillmentGrpcClient(
             throw;
         }
     }
+
+    public async Task<StepResult> RecordCourierAwbAsync(
+        string merchantPrincipalId,
+        string fulfillmentTaskId,
+        string orderNumber,
+        string awbNumber
+    ) {
+        if (string.IsNullOrWhiteSpace(awbNumber)) {
+            return StepResult.Refused("the fleet issued no tracking number with this dispatch");
+        }
+
+        try {
+            var response = await _client.RecordCourierAwbAsync(new RecordCourierAwbRequest {
+                MerchantPrincipalId = merchantPrincipalId,
+                FulfillmentTaskId = fulfillmentTaskId,
+                OrderNumber = orderNumber,
+                AwbNumber = awbNumber,
+            });
+
+            if (response.Accepted) {
+                return response.AlreadyRecorded ? StepResult.Repeat() : StepResult.Ok();
+            }
+
+            return StepResult.Refused(
+                response.Error?.Message ?? "the warehouse refused the tracking number"
+            );
+        } catch (RpcException e) {
+            _logger.LogError(
+                e, "warehouse did not answer RecordCourierAwb for {Order}; the parcel will be "
+                 + "packed without the courier's number on it",
+                orderNumber
+            );
+            throw;
+        }
+    }
 }

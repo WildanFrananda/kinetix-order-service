@@ -3,6 +3,7 @@ using Grpc.Core;
 using Common.V1;
 using CommonProto = global::Common.V1;
 using Fleet.V1;
+using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Ports;
 using DomainStatus = Kinetix.OrderService.Domain.Enums.OrderStatus;
 using Kinetix.OrderService.Infrastructure.Persistence;
@@ -13,11 +14,13 @@ public class FulfillmentPackedHandler(
     OrderDbContext dbContext,
     CourierTelemetryService.CourierTelemetryServiceClient courierClient,
     IAddressDirectory addresses,
+    IFulfillmentClient fulfillment,
     ILogger<FulfillmentPackedHandler> logger
 ) : IFulfillmentPackedHandler {
     private readonly OrderDbContext _dbContext = dbContext;
     private readonly CourierTelemetryService.CourierTelemetryServiceClient _courierClient = courierClient;
     private readonly IAddressDirectory _addresses = addresses;
+    private readonly IFulfillmentClient _fulfillment = fulfillment;
     private readonly ILogger<FulfillmentPackedHandler> _logger = logger;
 
     public async Task<FulfillmentPackedOutcome> HandleAsync(
@@ -87,6 +90,10 @@ public class FulfillmentPackedHandler(
                 return string.Empty;
             }
 
+            await TellTheWarehouseTheAwb(
+                merchantPrincipalId, fulfillmentTaskId, order.OrderNumber, response.AwbNumber
+            );
+
             return response.DispatchRef;
         } catch (RpcException e) {
             _logger.LogError(
@@ -94,6 +101,42 @@ public class FulfillmentPackedHandler(
                 order.OrderNumber, fulfillmentTaskId
             );
             return string.Empty;
+        }
+    }
+
+    private async Task TellTheWarehouseTheAwb(
+        string merchantPrincipalId,
+        string fulfillmentTaskId,
+        string orderNumber,
+        string awbNumber
+    ) {
+        if (string.IsNullOrWhiteSpace(awbNumber)) {
+            _logger.LogError(
+                "{Order} was dispatched and the fleet issued no tracking number, so the warehouse "
+              + "has nothing to print and the customer has nothing to follow",
+                orderNumber
+            );
+            return;
+        }
+
+        try {
+            var recorded = await _fulfillment.RecordCourierAwbAsync(
+                merchantPrincipalId, fulfillmentTaskId, orderNumber, awbNumber
+            );
+
+            if (!recorded.Success) {
+                _logger.LogError(
+                    "{Order} was dispatched with tracking number {Awb} and the warehouse refused "
+                  + "it: {Reason}. The courier is still assigned",
+                    orderNumber, awbNumber, recorded.Detail ?? "no reason given"
+                );
+            }
+        } catch (RpcException e) {
+            _logger.LogError(
+                e, "{Order} was dispatched with tracking number {Awb} and the warehouse could not "
+                 + "be told. The courier is still assigned",
+                orderNumber, awbNumber
+            );
         }
     }
 }

@@ -104,14 +104,13 @@ public class ShippingGrpcClientTests {
     }
 
     [Fact]
-    public async Task FeesArriveAsExactMinorUnits() {
+    public async Task AnOptionDescribesTheJourneyAndCarriesNoFee() {
         var matching = new Mock<ShippingProto.ShippingService.ShippingServiceClient>();
-        var response = new ShippingProto.EstimateShippingOptionsResponse { DistanceKm = 0 };
+        var response = new ShippingProto.EstimateShippingOptionsResponse { DistanceKm = 4.5 };
         response.Options.Add(new ShippingProto.CourierOption {
             ServiceTier = "KINETIX_REGULAR",
             ServiceName = "Kinetix Regular Freight",
-            DistanceKm = 0,
-            BaseShippingFee = new CommonProto.Money { AmountMinor = 900_000, Currency = "IDR" },
+            DistanceKm = 4.5,
             EstimatedDeliveryTime = "1 - 3 Hari",
             IsAvailable = true,
             UnavailableReason = ""
@@ -125,59 +124,15 @@ public class ShippingGrpcClientTests {
         var result = await ClientOver(matching).EstimateShippingOptionsAsync(0, 0, 0, 0, 0, Merchant);
 
         var option = Assert.Single(result.Options);
-        Assert.Equal(9000m, option.BaseShippingFee);
-        Assert.Null(option.UnavailableReason);
-    }
+        Assert.Equal("KINETIX_REGULAR", option.ServiceTier);
+        Assert.Equal(4.5, option.DistanceKm);
+        Assert.Equal("1 - 3 Hari", option.EstimatedDeliveryTime);
+        Assert.True(option.IsAvailable);
 
-    [Fact]
-    public async Task AnOptionWithNoMoneyOnItArrivesUnpricedRatherThanFree() {
-        var matching = new Mock<ShippingProto.ShippingService.ShippingServiceClient>();
-        var response = new ShippingProto.EstimateShippingOptionsResponse { DistanceKm = 0 };
-        response.Options.Add(new ShippingProto.CourierOption {
-            ServiceTier = "KINETIX_REGULAR",
-            ServiceName = "Kinetix Regular Freight",
-            DistanceKm = 0,
-            EstimatedDeliveryTime = "1 - 3 Hari",
-            IsAvailable = true,
-            UnavailableReason = ""
-        });
-
-        matching.Setup(c => c.EstimateShippingOptionsAsync(
-            It.IsAny<ShippingProto.EstimateShippingOptionsRequest>(), It.IsAny<Metadata>(),
-            It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()
-        )).Returns(Answer(response));
-
-        var result = await ClientOver(matching).EstimateShippingOptionsAsync(0, 0, 0, 0, 0, Merchant);
-
-        var option = Assert.Single(result.Options);
-        Assert.Null(option.BaseShippingFee);
-        Assert.NotEqual(0m, option.BaseShippingFee);
-    }
-
-    [Fact]
-    public async Task AnAvailableOptionQuotedInAnotherCurrencyIsRefusedRatherThanReadAsRupiah() {
-        var matching = new Mock<ShippingProto.ShippingService.ShippingServiceClient>();
-        var response = new ShippingProto.EstimateShippingOptionsResponse { DistanceKm = 0 };
-        response.Options.Add(new ShippingProto.CourierOption {
-            ServiceTier = "KINETIX_REGULAR",
-            ServiceName = "Kinetix Regular Freight",
-            DistanceKm = 0,
-            BaseShippingFee = new CommonProto.Money { AmountMinor = 900_000, Currency = "USD" },
-            EstimatedDeliveryTime = "1 - 3 Hari",
-            IsAvailable = true,
-            UnavailableReason = ""
-        });
-
-        matching.Setup(c => c.EstimateShippingOptionsAsync(
-            It.IsAny<ShippingProto.EstimateShippingOptionsRequest>(), It.IsAny<Metadata>(),
-            It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()
-        )).Returns(Answer(response));
-
-        var refusal = await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
-            ClientOver(matching).EstimateShippingOptionsAsync(0, 0, 0, 0, 0, Merchant)
+        Assert.DoesNotContain(
+            typeof(Kinetix.OrderService.Application.Results.ShippingOptionResult).GetProperties(),
+            property => property.Name.Contains("Fee", StringComparison.Ordinal)
         );
-
-        Assert.Contains("USD", refusal.Fault);
     }
 
     [Fact]
@@ -185,8 +140,7 @@ public class ShippingGrpcClientTests {
         var matching = new Mock<ShippingProto.ShippingService.ShippingServiceClient>();
         var response = new ShippingProto.EstimateShippingOptionsResponse { DistanceKm = 0 };
         response.Options.Add(new ShippingProto.CourierOption {
-            ServiceTier = "KINETIX_REGULAR",
-            BaseShippingFee = new CommonProto.Money { AmountMinor = 900_000, Currency = "EUR" },
+            ServiceTier = "",
             IsAvailable = true,
         });
 
@@ -195,8 +149,10 @@ public class ShippingGrpcClientTests {
             It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()
         )).Returns(Answer(response));
 
-        await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
-            ClientOver(matching).EstimateShippingOptionsAsync(0, 0, 0, 0, 0, Merchant)
-        );
+        var result = await ClientOver(matching).EstimateShippingOptionsAsync(0, 0, 0, 0, 0, Merchant);
+        var option = Assert.Single(result.Options);
+
+        Assert.Equal("", option.ServiceTier);
+        Assert.True(option.IsAvailable);
     }
 }
