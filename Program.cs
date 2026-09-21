@@ -1,5 +1,6 @@
 using Kinetix.OrderService.Application.Fulfillment;
 using Kinetix.OrderService.Application.Delivery;
+using Kinetix.OrderService.Application.Returns;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -262,6 +263,7 @@ builder.Services.AddScoped<IEscrowClient, EscrowGrpcClient>();
 builder.Services.AddScoped<IFulfillmentClient, FulfillmentGrpcClient>();
 builder.Services.AddScoped<IFulfillmentPackedHandler, FulfillmentPackedHandler>();
 builder.Services.AddScoped<IOrderDeliveredHandler, OrderDeliveredHandler>();
+builder.Services.AddScoped<IReturnsHandler, ReturnsHandler>();
 
 builder.Services.AddSingleton<SagaWorkerIdentity>();
 builder.Services.AddSingleton(CompensationPolicy.FromConfiguration(builder.Configuration));
