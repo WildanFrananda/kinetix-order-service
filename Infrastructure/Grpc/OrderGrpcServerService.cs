@@ -8,11 +8,13 @@ namespace Kinetix.OrderService.Infrastructure.Grpc;
 public class OrderGrpcServerService(
     IOrderService orderService,
     IFulfillmentPackedHandler fulfillmentPacked,
-    IOrderDeliveredHandler orderDelivered
+    IOrderDeliveredHandler orderDelivered,
+    IReturnsHandler returns
 ) : OrderProto.OrderService.OrderServiceBase {
     private readonly IOrderService _orderService = orderService;
     private readonly IFulfillmentPackedHandler _fulfillmentPacked = fulfillmentPacked;
     private readonly IOrderDeliveredHandler _orderDelivered = orderDelivered;
+    private readonly IReturnsHandler _returns = returns;
 
     private const long MinorPerMajor = 100L;
 
@@ -208,6 +210,74 @@ public class OrderGrpcServerService(
         return new OrderProto.OrderDeliveredResponse {
             Accepted = true,
             AlreadyDelivered = outcome.AlreadyDelivered
+        };
+    }
+
+    public override async Task<OrderProto.OpenReturnResponse> OpenReturn(
+        OrderProto.OpenReturnRequest request, ServerCallContext context
+    ) {
+        var outcome = await _returns.OpenAsync(
+            request.OrderNumber, request.MerchantPrincipalId, request.Reason
+        );
+
+        if (!outcome.Success) {
+            return new OrderProto.OpenReturnResponse {
+                Success = false,
+                Error = new ErrorDetail { ErrorCode = "RETURN_REFUSED", Message = outcome.Fault ?? "refused" }
+            };
+        }
+
+        return new OrderProto.OpenReturnResponse {
+            Success = true,
+            ReturnNumber = outcome.ReturnNumber,
+            Status = MapReturnStatus(outcome.Status),
+            AlreadyOpen = outcome.AlreadyOpen
+        };
+    }
+
+    public override async Task<OrderProto.ReturnGoodsReceivedResponse> ReturnGoodsReceived(
+        OrderProto.ReturnGoodsReceivedRequest request, ServerCallContext context
+    ) {
+        var lines = request.Lines
+            .Select(line => new ReturnedLine(line.Sku, line.Quantity))
+            .ToList();
+
+        var receivedAt = DateTime.TryParse(
+            request.ReceivedAt,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AdjustToUniversal
+                | System.Globalization.DateTimeStyles.AssumeUniversal,
+            out var parsed
+        ) ? parsed : default;
+
+        var outcome = await _returns.GoodsReceivedAsync(
+            request.ReturnNumber, request.MerchantPrincipalId, lines, request.BinCode, receivedAt
+        );
+
+        if (!outcome.Accepted) {
+            return new OrderProto.ReturnGoodsReceivedResponse {
+                Accepted = false,
+                Error = new ErrorDetail {
+                    ErrorCode = "RETURN_GOODS_REFUSED",
+                    Message = outcome.Fault ?? "refused"
+                }
+            };
+        }
+
+        return new OrderProto.ReturnGoodsReceivedResponse {
+            Accepted = true,
+            AlreadyRecorded = outcome.AlreadyRecorded,
+            Status = MapReturnStatus(outcome.Status)
+        };
+    }
+
+    private static OrderProto.ReturnStatus MapReturnStatus(Domain.Enums.ReturnStatus status) {
+        return status switch {
+            Domain.Enums.ReturnStatus.OPEN => OrderProto.ReturnStatus.Open,
+            Domain.Enums.ReturnStatus.GOODS_RECEIVED => OrderProto.ReturnStatus.GoodsReceived,
+            Domain.Enums.ReturnStatus.RESOLVED => OrderProto.ReturnStatus.Resolved,
+            Domain.Enums.ReturnStatus.REJECTED => OrderProto.ReturnStatus.Rejected,
+            _ => OrderProto.ReturnStatus.Unspecified
         };
     }
 

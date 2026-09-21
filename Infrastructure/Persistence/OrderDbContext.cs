@@ -12,12 +12,32 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
     public DbSet<CheckoutSagaStep> CheckoutSagaSteps => Set<CheckoutSagaStep>();
     public DbSet<CompensationAttempt> CompensationAttempts => Set<CompensationAttempt>();
     public DbSet<ShippingSettlement> ShippingSettlements => Set<ShippingSettlement>();
+    public DbSet<OrderReturn> OrderReturns => Set<OrderReturn>();
+    public DbSet<OrderReturnLine> OrderReturnLines => Set<OrderReturnLine>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) {
         base.OnModelCreating(modelBuilder);
 
         modelBuilder.Entity<ShippingSettlement>(entity => {
             entity.HasIndex(e => new { e.SettledAt, e.NextAttemptAt });
+        });
+
+        modelBuilder.Entity<OrderReturn>(entity => {
+            entity.HasIndex(e => e.OrderNumber).IsUnique();
+            entity.HasIndex(e => new { e.MerchantPrincipalId, e.Status });
+
+            entity.Property(e => e.Status)
+                .HasConversion<string>()
+                .HasMaxLength(30);
+
+            entity.HasMany(e => e.Lines)
+                .WithOne(line => line.Return)
+                .HasForeignKey(line => line.ReturnNumber)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<OrderReturnLine>(entity => {
+            entity.HasIndex(e => e.ReturnNumber);
         });
 
         modelBuilder.Entity<OrderEntity>(entity => {
