@@ -45,6 +45,9 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
             entity.HasIndex(e => e.CustomerPrincipalId);
             entity.HasIndex(e => new { e.CustomerPrincipalId, e.IdempotencyKey }).IsUnique();
 
+            entity.HasIndex(e => new { e.UpdatedAt, e.OrderNumber })
+                .HasDatabaseName("ix_orders_changed_since");
+
             entity.Property(e => e.Status)
                 .HasConversion<string>()
                 .HasMaxLength(30);
