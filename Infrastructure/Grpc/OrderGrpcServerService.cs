@@ -1,3 +1,4 @@
+using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Common.V1;
 using Kinetix.OrderService.Application.Ports;
@@ -17,6 +18,8 @@ public class OrderGrpcServerService(
     private readonly IReturnsHandler _returns = returns;
 
     private const long MinorPerMajor = 100L;
+    private const int ChangeFeedDefaultLimit = 100;
+    private const int ChangeFeedMaxLimit = 500;
 
     public override async Task<OrderProto.GetOrderDetailsResponse> GetOrderDetails(OrderProto.GetOrderDetailsRequest request, ServerCallContext context) {
         if (!Guid.TryParse(request.OrderId, out var orderGuid)) {
@@ -269,6 +272,55 @@ public class OrderGrpcServerService(
             AlreadyRecorded = outcome.AlreadyRecorded,
             Status = MapReturnStatus(outcome.Status)
         };
+    }
+
+    public override async Task<OrderProto.OrdersChangedSinceResponse> OrdersChangedSince(
+        OrderProto.OrdersChangedSinceRequest request, ServerCallContext context
+    ) {
+        int limit = request.Limit switch {
+            <= 0 => ChangeFeedDefaultLimit,
+            > ChangeFeedMaxLimit => ChangeFeedMaxLimit,
+            _ => request.Limit
+        };
+
+        DateTime? updatedThrough = request.Cursor?.UpdatedThrough?.ToDateTime();
+        string lastOrderNumber = request.Cursor?.LastOrderNumber ?? string.Empty;
+
+        var page = await _orderService.OrdersChangedSinceAsync(
+            updatedThrough, lastOrderNumber, limit
+        );
+
+        var response = new OrderProto.OrdersChangedSinceResponse { HasMore = page.HasMore };
+
+        foreach (var change in page.Changes) {
+            var record = new OrderProto.OrderRecord {
+                OrderNumber = change.OrderNumber,
+                BuyerPrincipalId = change.BuyerPrincipalId,
+                MerchantPrincipalId = change.MerchantPrincipalId,
+                Status = MapStatus(change.Status.ToString()),
+                PlacedAt = Timestamp.FromDateTime(change.PlacedAt),
+                UpdatedAt = Timestamp.FromDateTime(change.UpdatedAt)
+            };
+
+            record.LineTitles.Add(change.LineTitles);
+            response.Upserted.Add(record);
+        }
+
+        var last = page.Changes.Count > 0 ? page.Changes[^1] : null;
+
+        response.Next = last is null
+            ? new OrderProto.OrderCursor {
+                UpdatedThrough = updatedThrough is DateTime resumed
+                    ? Timestamp.FromDateTime(resumed)
+                    : null,
+                LastOrderNumber = lastOrderNumber
+            }
+            : new OrderProto.OrderCursor {
+                UpdatedThrough = Timestamp.FromDateTime(last.UpdatedAt),
+                LastOrderNumber = last.OrderNumber
+            };
+
+        return response;
     }
 
     private static OrderProto.ReturnStatus MapReturnStatus(Domain.Enums.ReturnStatus status) {

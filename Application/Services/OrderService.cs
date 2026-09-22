@@ -62,8 +62,8 @@ public class OrderService(
             appliedVoucher, priceLines, shippingQuote.Journey
         );
 
-        if (priceResult.FinalShippingFee < 0m
-            || priceResult.FinalShippingFee > priceResult.BaseShippingFee
+        if (
+            priceResult.FinalShippingFee < 0m || priceResult.FinalShippingFee > priceResult.BaseShippingFee
         ) {
 
             _logger.LogError(
@@ -97,6 +97,7 @@ public class OrderService(
         var order = new OrderEntity {
             OrderNumber = orderNumber,
             CustomerPrincipalId = customerPrincipalId,
+            MerchantPrincipalId = merchantPrincipalId,
             Status = OrderStatus.PENDING_PAYMENT,
             Subtotal = priceResult.Subtotal,
             DiscountAmount = priceResult.VoucherDiscount,
@@ -429,6 +430,42 @@ public class OrderService(
             .ToListAsync();
 
         return new CustomerOrderPage([.. orders.Select(MapToOrderResponse)], totalCount);
+    }
+
+    public async Task<OrderChangePage> OrdersChangedSinceAsync(DateTime? updatedThrough, string lastOrderNumber, int limit) {
+        var query = _dbContext.Orders
+            .AsNoTracking()
+            .Include(o => o.Items)
+            .AsQueryable();
+
+        if (updatedThrough is DateTime through) {
+            query = query.Where(o =>
+                o.UpdatedAt > through
+             || (o.UpdatedAt == through && string.Compare(o.OrderNumber, lastOrderNumber) > 0)
+            );
+        }
+
+        var rows = await query
+            .OrderBy(o => o.UpdatedAt)
+            .ThenBy(o => o.OrderNumber)
+            .Take(limit + 1)
+            .ToListAsync();
+
+        bool hasMore = rows.Count > limit;
+        var page = hasMore ? rows.Take(limit) : rows;
+
+        return new OrderChangePage(
+            [.. page.Select(o => new OrderChange(
+                o.OrderNumber,
+                o.CustomerPrincipalId,
+                o.MerchantPrincipalId,
+                o.Status,
+                [.. o.Items.Select(i => i.ProductTitle)],
+                DateTime.SpecifyKind(o.CreatedAt, DateTimeKind.Utc),
+                DateTime.SpecifyKind(o.UpdatedAt, DateTimeKind.Utc)
+            ))],
+            hasMore
+        );
     }
 
     public async Task<OrderResponse> TransitionOrderStatusAsync(Guid orderId, OrderStatus newStatus) {

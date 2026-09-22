@@ -22,6 +22,11 @@ public class Order {
     public string CustomerPrincipalId { get; set; } = string.Empty;
 
     [Required]
+    [MaxLength(64)]
+    [Column("merchant_principal_id")]
+    public string MerchantPrincipalId { get; set; } = string.Empty;
+
+    [Required]
     [Column("status")]
     public OrderStatus Status { get; set; } = OrderStatus.PENDING_PAYMENT;
 

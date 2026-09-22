@@ -9,5 +9,6 @@ public interface IOrderService {
     Task<OrderResponse> CheckoutAsync(string customerPrincipalId, CheckoutRequest request, string? idempotencyKey);
     Task<OrderResponse?> GetOrderByIdAsync(Guid orderId);
     Task<CustomerOrderPage> GetCustomerOrdersAsync(string customerPrincipalId, OrderStatus? status, int page, int pageSize);
+    Task<OrderChangePage> OrdersChangedSinceAsync(DateTime? updatedThrough, string lastOrderNumber, int limit);
     Task<OrderResponse> TransitionOrderStatusAsync(Guid orderId, OrderStatus newStatus);
 }
