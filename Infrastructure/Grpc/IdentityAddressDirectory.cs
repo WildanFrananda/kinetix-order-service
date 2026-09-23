@@ -29,7 +29,7 @@ public class IdentityAddressDirectory(
                 return null;
             }
 
-            if (!response.HasLocation) {
+            if (response.Location is null) {
                 _logger.LogWarning(
                     "identity has not placed merchant {Principal}'s store address on a map, so no "
                   + "courier can be sent to it",
@@ -58,7 +58,7 @@ public class IdentityAddressDirectory(
                 new IdentityProto.GetUserProfileRequest { PrincipalId = customerPrincipalId }
             );
 
-            if (!response.Found || !response.HasLocation) {
+            if (!response.Found || response.Location is null) {
                 _logger.LogWarning(
                     "identity has not placed customer {Principal}'s address on a map, so no courier "
                   + "can be sent to it",
