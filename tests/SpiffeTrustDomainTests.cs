@@ -6,6 +6,26 @@ public class SpiffeTrustDomainTests {
     [Fact]
     public void AnUnsetVariableKeepsTheDomainTheEstateRunsToday() {
         Assert.Equal("kinetix.local", SpiffePeer.TrustDomain);
+        Assert.Equal(["kinetix.local"], SpiffePeer.TrustDomains);
+    }
+
+    [Fact]
+    public void ACutoverCanAcceptBothDomainsAtOnce() {
+        string[] both = ["kinetix.local", "prod.kinetix"];
+
+        foreach (var domain in both) {
+            var id = $"spiffe://{domain}/service/order";
+            var named = both.Select(d => SpiffePeer.ServiceOf(id, d)).FirstOrDefault(n => n is not null);
+            Assert.Equal("order", named);
+        }
+    }
+
+    [Fact]
+    public void ADomainOutsideTheListIsStillRefused() {
+        string[] accepted = ["kinetix.local", "prod.kinetix"];
+        const string id = "spiffe://staging.kinetix/service/order";
+
+        Assert.All(accepted, d => Assert.Null(SpiffePeer.ServiceOf(id, d)));
     }
 
     [Fact]
