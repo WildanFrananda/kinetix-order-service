@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Exceptions;
 using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Application.Products;
 using Kinetix.OrderService.Application.Results;
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
@@ -16,6 +17,7 @@ namespace Kinetix.OrderService.Application.Services;
 public class OrderService(
     OrderDbContext dbContext,
     ICartService cartService,
+    IProductDirectory products,
     IPricingClient pricingClient,
     IShippingClient shippingClient,
     CheckoutSagaRunner sagaRunner,
@@ -23,6 +25,7 @@ public class OrderService(
 ) : IOrderService {
     private readonly OrderDbContext _dbContext = dbContext;
     private readonly ICartService _cartService = cartService;
+    private readonly IProductDirectory _products = products;
     private readonly IPricingClient _pricingClient = pricingClient;
     private readonly IShippingClient _shippingClient = shippingClient;
     private readonly CheckoutSagaRunner _sagaRunner = sagaRunner;
@@ -49,13 +52,20 @@ public class OrderService(
         }
 
         string? appliedVoucher = request.VoucherCode ?? cart.AppliedVoucherCode;
-        string merchantPrincipalId = ResolveMerchantPrincipal(cart);
+
+        var products = new List<CatalogProduct>(cart.Items.Count);
+        foreach (var item in cart.Items) {
+            products.Add(await _products.GetProductAsync(item.ProductId));
+        }
+
+        string merchantPrincipalId = ResolveMerchantPrincipal(products);
 
         var shippingQuote = await QuoteShippingAsync(request.ShippingServiceTier, merchantPrincipalId);
         decimal baseShippingFee = shippingQuote.BaseShippingFee;
 
         var priceLines = cart.Items
-            .Select(i => new PriceLine(i.ProductId, i.CategoryId, i.UnitPrice, i.Quantity))
+            .Zip(products, (item, product) =>
+                new PriceLine(product.ProductId, product.CategoryId, product.UnitPrice, item.Quantity))
             .ToList();
 
         var priceResult = await _pricingClient.CalculatePriceAsync(
@@ -178,13 +188,13 @@ public class OrderService(
         }
     }
 
-    private static string ResolveMerchantPrincipal(CustomerCart cart) {
-        if (cart.Items.Any(item => string.IsNullOrWhiteSpace(item.MerchantPrincipalId))) {
+    private static string ResolveMerchantPrincipal(IReadOnlyList<CatalogProduct> products) {
+        if (products.Any(product => string.IsNullOrWhiteSpace(product.MerchantPrincipalId))) {
             throw new CartItemsHaveNoMerchantException();
         }
 
-        var merchants = cart.Items
-            .Select(item => item.MerchantPrincipalId!)
+        var merchants = products
+            .Select(product => product.MerchantPrincipalId)
             .Distinct(StringComparer.Ordinal)
             .ToList();
 

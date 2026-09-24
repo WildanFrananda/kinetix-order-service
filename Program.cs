@@ -164,6 +164,18 @@ builder.Services.AddGrpcClient<Shipping.V1.ShippingService.ShippingServiceClient
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
 
+var catalogGrpcUrl = builder.Configuration["CATALOG_GRPC_URL"] ?? "http://kinetix-catalog-grpc:50058";
+var catalogAddress = AsMesh(catalogGrpcUrl);
+
+builder.Services.AddGrpcClient<Catalog.V1.CatalogService.CatalogServiceClient>(options => {
+    options.Address = catalogAddress;
+}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+  .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
+      catalogAddress.Host, services.GetRequiredService<KinetixMetrics>()
+  ))
+  .AddInterceptor<RequestIdForwardingInterceptor>()
+  .AddInterceptor<GrpcDeadlineInterceptor>();
+
 var warehouseGrpcUrl = builder.Configuration["WAREHOUSE_GRPC_URL"] ?? "http://kinetix-warehouse-grpc:50051";
 var identityGrpcUrl = builder.Configuration["IDENTITY_GRPC_URL"] ?? "http://kinetix-identity-service:50052";
 var paymentGrpcUrl = builder.Configuration["PAYMENT_GRPC_URL"] ?? "http://kinetix-payment-service:50056";
@@ -259,6 +271,7 @@ builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<IVoucherQuotaClient, VoucherQuotaGrpcClient>();
 builder.Services.AddScoped<IFlashSaleClient, FlashSaleGrpcClient>();
 builder.Services.AddScoped<IStockClient, StockGrpcClient>();
+builder.Services.AddScoped<IProductDirectory, CatalogProductDirectory>();
 builder.Services.AddScoped<IEscrowClient, EscrowGrpcClient>();
 builder.Services.AddScoped<IFulfillmentClient, FulfillmentGrpcClient>();
 builder.Services.AddScoped<IFulfillmentPackedHandler, FulfillmentPackedHandler>();

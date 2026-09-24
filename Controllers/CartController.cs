@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.DTOs.Requests;
 
+using Kinetix.OrderService.Application.Exceptions;
+
 namespace Kinetix.OrderService.Controllers;
 
 [ApiController]
@@ -32,8 +34,20 @@ public class CartController(ICartService cartService) : ControllerBase {
         if (!TryGetCallerPrincipal(out var customerPrincipalId)) {
             return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
-        var cart = await _cartService.AddItemAsync(customerPrincipalId, request);
-        return Ok(cart);
+        try {
+            var cart = await _cartService.AddItemAsync(customerPrincipalId, request);
+            return Ok(cart);
+        } catch (ProductNotInCatalogException ex) {
+            return NotFound(new { error = "PRODUCT_NOT_IN_CATALOG", productId = ex.ProductId, message = ex.Message });
+        } catch (ProductHasNoUsablePriceException ex) {
+            return UnprocessableEntity(new {
+                error = "PRODUCT_HAS_NO_USABLE_PRICE", productId = ex.ProductId, message = ex.Message
+            });
+        } catch (CatalogUnavailableException ex) {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
+                error = "CATALOG_UNAVAILABLE", productId = ex.ProductId, message = ex.Message
+            });
+        }
     }
 
     [HttpPut("items/{productId}")]

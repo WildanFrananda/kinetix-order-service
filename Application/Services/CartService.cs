@@ -6,8 +6,9 @@ using Kinetix.OrderService.DTOs.Requests;
 
 namespace Kinetix.OrderService.Application.Services;
 
-public class CartService(IDistributedCache cache) : ICartService {
+public class CartService(IDistributedCache cache, IProductDirectory products) : ICartService {
     private readonly IDistributedCache _cache = cache;
+    private readonly IProductDirectory _products = products;
     private readonly TimeSpan _cartTtl = TimeSpan.FromDays(14);
 
     private static string GetCartKey(string customerPrincipalId) => $"cart:principal:{customerPrincipalId}";
@@ -25,19 +26,25 @@ public class CartService(IDistributedCache cache) : ICartService {
     }
 
     public async Task<CustomerCart> AddItemAsync(string customerPrincipalId, AddCartItemRequest request) {
+        var product = await _products.GetProductAsync(request.ProductId);
+
         var cart = await GetCartAsync(customerPrincipalId);
-        var existingItem = cart.Items.FirstOrDefault(i => i.ProductId == request.ProductId);
+        var existingItem = cart.Items.FirstOrDefault(i => i.ProductId == product.ProductId);
 
         if (existingItem != null) {
             existingItem.Quantity += request.Quantity;
+            existingItem.ProductTitle = product.Title;
+            existingItem.UnitPrice = product.UnitPrice;
+            existingItem.CategoryId = product.CategoryId;
+            existingItem.MerchantPrincipalId = product.MerchantPrincipalId;
         } else {
             cart.Items.Add(new CartItem {
-                ProductId = request.ProductId,
-                ProductTitle = request.ProductTitle,
-                UnitPrice = request.UnitPrice,
+                ProductId = product.ProductId,
+                ProductTitle = product.Title,
+                UnitPrice = product.UnitPrice,
                 Quantity = request.Quantity,
-                CategoryId = request.CategoryId,
-                MerchantPrincipalId = request.MerchantPrincipalId
+                CategoryId = product.CategoryId,
+                MerchantPrincipalId = product.MerchantPrincipalId
             });
         }
 
