@@ -669,6 +669,126 @@ public class OrderServiceTests {
     }
 
     [Fact]
+    public async Task CheckoutAsync_WhenTheCartSpansTwoMerchants_RefusesRatherThanFilingItUnderTheFirst() {
+        using var dbContext = GetInMemoryDbContext();
+        var escrow = AcceptingEscrow();
+        var shipping = ShippingReturning(RateCardFloor());
+
+        var cartService = new Mock<ICartService>();
+        var cart = new CustomerCart(Customer);
+        cart.Items.Add(new CartItem {
+            ProductId = "PRODUCT-01",
+            ProductTitle = "From the first merchant",
+            UnitPrice = 100000m,
+            Quantity = 1,
+            MerchantPrincipalId = "MERCHANT-ONE"
+        });
+        cart.Items.Add(new CartItem {
+            ProductId = "PRODUCT-02",
+            ProductTitle = "From the second merchant",
+            UnitPrice = 50000m,
+            Quantity = 1,
+            MerchantPrincipalId = "MERCHANT-TWO"
+        });
+        cartService.Setup(s => s.GetCartAsync(Customer)).ReturnsAsync(cart);
+
+        var orderService = NewOrderService(dbContext, cartService.Object,
+            PricingPassingShippingThrough().Object, shipping.Object, escrow.Object
+        );
+
+        var refusal = await Assert.ThrowsAsync<CartSpansTwoMerchantsException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+                "IDEMP-KEY-TWO-MERCHANTS"
+            )
+        );
+
+        Assert.Equal(2, refusal.MerchantCount);
+
+        Assert.DoesNotContain("MERCHANT-ONE", refusal.Message);
+        Assert.DoesNotContain("MERCHANT-TWO", refusal.Message);
+
+        Assert.Empty(dbContext.Orders);
+        shipping.Verify(c => c.EstimateShippingOptionsAsync(
+            It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<long>(), It.IsAny<string>())
+        , Times.Never);
+        escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()
+        ), Times.Never);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenOneItemOfManyCarriesNoMerchant_RefusesRatherThanReadingPastIt() {
+        using var dbContext = GetInMemoryDbContext();
+        var escrow = AcceptingEscrow();
+        var shipping = ShippingReturning(RateCardFloor());
+
+        var cartService = new Mock<ICartService>();
+        var cart = new CustomerCart(Customer);
+        cart.Items.Add(new CartItem {
+            ProductId = "PRODUCT-01",
+            ProductTitle = "Carries a merchant",
+            UnitPrice = 100000m,
+            Quantity = 1,
+            MerchantPrincipalId = "MERCHANT-ONE"
+        });
+        cart.Items.Add(new CartItem {
+            ProductId = "PRODUCT-02",
+            ProductTitle = "Carries none",
+            UnitPrice = 50000m,
+            Quantity = 1,
+            MerchantPrincipalId = null
+        });
+        cartService.Setup(s => s.GetCartAsync(Customer)).ReturnsAsync(cart);
+
+        var orderService = NewOrderService(dbContext, cartService.Object,
+            PricingPassingShippingThrough().Object, shipping.Object, escrow.Object
+        );
+
+        await Assert.ThrowsAsync<CartItemsHaveNoMerchantException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+                "IDEMP-KEY-ONE-MERCHANTLESS"
+            )
+        );
+
+        Assert.Empty(dbContext.Orders);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenEveryItemSharesOneMerchant_ProceedsAsBefore() {
+        using var dbContext = GetInMemoryDbContext();
+        var escrow = AcceptingEscrow();
+        var shipping = ShippingReturning(RateCardFloor());
+
+        var cartService = new Mock<ICartService>();
+        var cart = new CustomerCart(Customer);
+        foreach (var sku in new[] { "PRODUCT-01", "PRODUCT-02", "PRODUCT-03" }) {
+            cart.Items.Add(new CartItem {
+                ProductId = sku,
+                ProductTitle = sku,
+                UnitPrice = 10000m,
+                Quantity = 1,
+                MerchantPrincipalId = "MERCHANT-ONE"
+            });
+        }
+        cartService.Setup(s => s.GetCartAsync(Customer)).ReturnsAsync(cart);
+
+        var orderService = NewOrderService(dbContext, cartService.Object,
+            PricingPassingShippingThrough().Object, shipping.Object, escrow.Object
+        );
+
+        var order = await orderService.CheckoutAsync(Customer,
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+            "IDEMP-KEY-ONE-MERCHANT-MANY-ITEMS"
+        );
+
+        Assert.NotNull(order);
+        Assert.Single(dbContext.Orders);
+    }
+
+    [Fact]
     public async Task CheckoutAsync_WhenTheCartCarriesNoMerchant_RefusesRatherThanInventingAPayee() {
         using var dbContext = GetInMemoryDbContext();
         var escrow = AcceptingEscrow();
