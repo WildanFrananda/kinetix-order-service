@@ -6,6 +6,7 @@ using Xunit;
 using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Exceptions;
 using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Application.Products;
 using Kinetix.OrderService.Application.Results;
 using Kinetix.OrderService.Infrastructure.Http;
 using Kinetix.OrderService.Domain.Entities;
@@ -96,7 +97,8 @@ public class OrderServiceTests {
         ICartService cart,
         IPricingClient pricing,
         IShippingClient shipping,
-        IEscrowClient? escrowClient = null
+        IEscrowClient? escrowClient = null,
+        IProductDirectory? catalog = null
     ) {
         var voucher = new Mock<IVoucherQuotaClient>();
         voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
@@ -126,8 +128,8 @@ public class OrderServiceTests {
             NullLogger<CheckoutSagaRunner>.Instance
         );
 
-        return new OrderApplicationService(db, cart, pricing, shipping, runner,
-            NullLogger<OrderApplicationService>.Instance
+        return new OrderApplicationService(db, cart, catalog ?? CatalogAnswering().Object,
+            pricing, shipping, runner, NullLogger<OrderApplicationService>.Instance
         );
     }
 
@@ -136,6 +138,33 @@ public class OrderServiceTests {
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
         return new OrderDbContext(options);
+    }
+
+    /// <summary>
+    /// Catalog as the tests' default cart describes it — one merchant, one price.
+    /// </summary>
+    /// <remarks>
+    /// The price and the merchant are read from here now, not from the cart, so a test that wants a
+    /// different answer sets one up rather than writing it into a cart item.
+    /// </remarks>
+    private static Mock<IProductDirectory> CatalogAnswering() {
+        var catalog = new Mock<IProductDirectory>();
+        catalog.Setup(c => c.GetProductAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string sku, CancellationToken _) =>
+                new CatalogProduct(sku, Merchant, "Sample Product", 100000m, null));
+        return catalog;
+    }
+
+    /// <summary>
+    /// Catalog naming a merchant per product, for the tests that are about who gets paid.
+    /// </summary>
+    private static Mock<IProductDirectory> CatalogNaming(params (string Sku, string Merchant)[] products) {
+        var catalog = new Mock<IProductDirectory>();
+        foreach (var (sku, merchant) in products) {
+            var answer = new CatalogProduct(sku, merchant, sku, 100000m, null);
+            catalog.Setup(c => c.GetProductAsync(sku, It.IsAny<CancellationToken>())).ReturnsAsync(answer);
+        }
+        return catalog;
     }
 
     private static Mock<ICartService> CartWithOneItem() {
@@ -669,6 +698,57 @@ public class OrderServiceTests {
     }
 
     [Fact]
+    public async Task CheckoutAsync_APriceWrittenIntoTheCartIsIgnored_CatalogsIsCharged() {
+        using var dbContext = GetInMemoryDbContext();
+        var escrow = AcceptingEscrow();
+        var shipping = ShippingReturning(RateCardFloor());
+
+        var cartService = new Mock<ICartService>();
+        var cart = new CustomerCart(Customer);
+        cart.Items.Add(new CartItem {
+            ProductId = "PRODUCT-01",
+            ProductTitle = "Free money, please",
+            UnitPrice = 1m,
+            Quantity = 2,
+            CategoryId = "forged",
+            MerchantPrincipalId = "MERCHANT-THE-BUYER-PICKED"
+        });
+        cartService.Setup(s => s.GetCartAsync(Customer)).ReturnsAsync(cart);
+
+        var pricing = PricingPassingShippingThrough();
+        IReadOnlyList<PriceLine> seen = [];
+        pricing.Setup(p => p.CalculatePriceAsync(
+            It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>()
+        )).Callback((string? _, IReadOnlyList<PriceLine> lines, ShippingJourney? _) => seen = lines)
+          .ReturnsAsync((string? _, IReadOnlyList<PriceLine> lines, ShippingJourney? journey) => {
+              decimal subtotal = lines.Sum(l => l.UnitPrice * l.Quantity);
+              decimal baseShippingFee = journey is null ? 0m : RateCard.GetValueOrDefault(journey.ServiceTier);
+              return new PriceCalculationResult(subtotal, 0m, baseShippingFee, 0m, baseShippingFee,
+                  subtotal + baseShippingFee, []);
+          });
+
+        var orderService = NewOrderService(dbContext, cartService.Object, pricing.Object,
+            shipping.Object, escrow.Object, CatalogNaming(("PRODUCT-01", Merchant)).Object
+        );
+
+        await orderService.CheckoutAsync(Customer,
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+            "IDEMP-KEY-FORGED-PRICE"
+        );
+
+        var line = Assert.Single(seen);
+        Assert.Equal(100000m, line.UnitPrice);
+        Assert.NotEqual(1m, line.UnitPrice);
+        Assert.Equal(2, line.Quantity);
+
+        Assert.NotEqual("forged", line.CategoryId);
+
+        var order = Assert.Single(dbContext.Orders);
+        Assert.Equal(Merchant, order.MerchantPrincipalId);
+        Assert.Equal(200000m, order.Subtotal);
+    }
+
+    [Fact]
     public async Task CheckoutAsync_WhenTheCartSpansTwoMerchants_RefusesRatherThanFilingItUnderTheFirst() {
         using var dbContext = GetInMemoryDbContext();
         var escrow = AcceptingEscrow();
@@ -693,7 +773,8 @@ public class OrderServiceTests {
         cartService.Setup(s => s.GetCartAsync(Customer)).ReturnsAsync(cart);
 
         var orderService = NewOrderService(dbContext, cartService.Object,
-            PricingPassingShippingThrough().Object, shipping.Object, escrow.Object
+            PricingPassingShippingThrough().Object, shipping.Object, escrow.Object,
+            CatalogNaming(("PRODUCT-01", "MERCHANT-ONE"), ("PRODUCT-02", "MERCHANT-TWO")).Object
         );
 
         var refusal = await Assert.ThrowsAsync<CartSpansTwoMerchantsException>(() =>
@@ -743,7 +824,8 @@ public class OrderServiceTests {
         cartService.Setup(s => s.GetCartAsync(Customer)).ReturnsAsync(cart);
 
         var orderService = NewOrderService(dbContext, cartService.Object,
-            PricingPassingShippingThrough().Object, shipping.Object, escrow.Object
+            PricingPassingShippingThrough().Object, shipping.Object, escrow.Object,
+            CatalogNaming(("PRODUCT-01", "MERCHANT-ONE"), ("PRODUCT-02", "")).Object
         );
 
         await Assert.ThrowsAsync<CartItemsHaveNoMerchantException>(() =>
@@ -806,7 +888,8 @@ public class OrderServiceTests {
         cartService.Setup(s => s.GetCartAsync(Customer)).ReturnsAsync(cart);
 
         var orderService = NewOrderService(dbContext, cartService.Object,
-            PricingPassingShippingThrough().Object, shipping.Object, escrow.Object
+            PricingPassingShippingThrough().Object, shipping.Object, escrow.Object,
+            CatalogNaming(("PRODUCT-01", "")).Object
         );
 
         await Assert.ThrowsAsync<CartItemsHaveNoMerchantException>(() =>
@@ -1236,7 +1319,8 @@ public class OrderServiceTests {
         async Task<Exception?> Outcome(ICartService cart, string key) {
             using var dbContext = GetInMemoryDbContext();
             var orderService = NewOrderService(dbContext, cart,
-                PricingPassingShippingThrough().Object, ShippingReturning(RateCardFloor()).Object);
+                PricingPassingShippingThrough().Object, ShippingReturning(RateCardFloor()).Object,
+                null, CatalogNaming(("PRODUCT-01", "")).Object);
 
             return await Record.ExceptionAsync(() => orderService.CheckoutAsync(Customer,
                 new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), key));

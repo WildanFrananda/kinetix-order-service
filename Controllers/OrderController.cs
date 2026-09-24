@@ -103,6 +103,16 @@ public class OrderController(IOrderService orderService) : ControllerBase {
                 merchantCount = ex.MerchantCount,
                 message = ex.Message,
             });
+        } catch (ProductNotInCatalogException ex) {
+            return NotFound(new { error = "PRODUCT_NOT_IN_CATALOG", productId = ex.ProductId, message = ex.Message });
+        } catch (ProductHasNoUsablePriceException ex) {
+            return UnprocessableEntity(new {
+                error = "PRODUCT_HAS_NO_USABLE_PRICE", productId = ex.ProductId, message = ex.Message
+            });
+        } catch (CatalogUnavailableException ex) {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
+                error = "CATALOG_UNAVAILABLE", productId = ex.ProductId, message = ex.Message
+            });
         }
     }
 
