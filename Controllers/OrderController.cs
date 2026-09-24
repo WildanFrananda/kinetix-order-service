@@ -97,6 +97,12 @@ public class OrderController(IOrderService orderService) : ControllerBase {
             return BadRequest(new { error = "CART_EMPTY", message = ex.Message });
         } catch (CartItemsHaveNoMerchantException ex) {
             return BadRequest(new { error = "CART_ITEMS_HAVE_NO_MERCHANT", message = ex.Message });
+        } catch (CartSpansTwoMerchantsException ex) {
+            return BadRequest(new {
+                error = "CART_SPANS_TWO_MERCHANTS",
+                merchantCount = ex.MerchantCount,
+                message = ex.Message,
+            });
         }
     }
 

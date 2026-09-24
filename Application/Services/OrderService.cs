@@ -179,13 +179,20 @@ public class OrderService(
     }
 
     private static string ResolveMerchantPrincipal(CustomerCart cart) {
-        string? merchantPrincipalId = cart.Items.FirstOrDefault()?.MerchantPrincipalId;
-
-        if (string.IsNullOrWhiteSpace(merchantPrincipalId)) {
+        if (cart.Items.Any(item => string.IsNullOrWhiteSpace(item.MerchantPrincipalId))) {
             throw new CartItemsHaveNoMerchantException();
         }
 
-        return merchantPrincipalId;
+        var merchants = cart.Items
+            .Select(item => item.MerchantPrincipalId!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (merchants.Count > 1) {
+            throw new CartSpansTwoMerchantsException(merchants.Count);
+        }
+
+        return merchants[0];
     }
 
     private static string Amount(decimal value) => value.ToString(CultureInfo.InvariantCulture);

@@ -110,6 +110,16 @@ public class OrderControllerTests {
     }
 
     [Fact]
+    public async Task ACartSpanningTwoMerchantsIsRefusedWithACodeTheStorefrontCanActOn() {
+        var refusal = await CheckoutRefusal(new CartSpansTwoMerchantsException(2));
+
+        Assert.Equal(StatusCodes.Status400BadRequest, refusal.StatusCode);
+        Assert.Equal("CART_SPANS_TWO_MERCHANTS", Text(refusal.Value!, "error"));
+
+        Assert.Contains("separately", Text(refusal.Value!, "message"));
+    }
+
+    [Fact]
     public async Task AnEmptyCartAndAMerchantlessCartDoNotShareAnErrorCode() {
         var empty = await CheckoutRefusal(new EmptyCartException());
         var merchantless = await CheckoutRefusal(new CartItemsHaveNoMerchantException());
@@ -174,6 +184,7 @@ public class OrderControllerTests {
             new CheckoutFailedException("ORD-20260908-0001", "stock for PRODUCT-01: out of stock"),
             new EmptyCartException(),
             new CartItemsHaveNoMerchantException(),
+            new CartSpansTwoMerchantsException(2),
         };
 
         var rendered = new List<string>();
@@ -194,6 +205,7 @@ public class OrderControllerTests {
             "409 CHECKOUT_ROLLED_BACK",
             "400 CART_EMPTY",
             "400 CART_ITEMS_HAVE_NO_MERCHANT",
+            "400 CART_SPANS_TWO_MERCHANTS",
         ], rendered);
     }
 
