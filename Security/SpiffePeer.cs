@@ -3,9 +3,14 @@ using System.Security.Cryptography.X509Certificates;
 namespace Kinetix.OrderService.Security;
 
 public static class SpiffePeer {
-    public const string TrustDomain = "kinetix.local";
+    private const string DefaultTrustDomain = "kinetix.local";
 
     private const string SubjectAltNameOid = "2.5.29.17";
+
+    public static string TrustDomain { get; } =
+        Environment.GetEnvironmentVariable("KINETIX_TRUST_DOMAIN")?.Trim() is { Length: > 0 } configured
+            ? configured
+            : DefaultTrustDomain;
 
     public static string? IdOf(X509Certificate2 certificate) {
         foreach (var ext in certificate.Extensions) {
@@ -26,8 +31,11 @@ public static class SpiffePeer {
     }
 
     public static string? ServiceOf(X509Certificate2 certificate) {
-        var id = IdOf(certificate);
-        var prefix = $"spiffe://{TrustDomain}/service/";
+        return ServiceOf(IdOf(certificate), TrustDomain);
+    }
+
+    public static string? ServiceOf(string? id, string domain) {
+        var prefix = $"spiffe://{domain}/service/";
         return id is not null && id.StartsWith(prefix, StringComparison.Ordinal)
             ? id[prefix.Length..]
             : null;
