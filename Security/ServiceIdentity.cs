@@ -41,6 +41,9 @@ public sealed class ServiceIdentity {
         return new ServiceIdentity(leaf, roots);
     }
 
+    public bool Identifies(X509Certificate2 peer, string service) =>
+        IsIssuedByOurCa(peer) && SpiffePeer.ServiceOf(peer) == service;
+
     public bool IsIssuedByOurCa(X509Certificate2 peer) {
         using var chain = new X509Chain();
         chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;

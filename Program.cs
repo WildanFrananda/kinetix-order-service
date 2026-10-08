@@ -1,12 +1,10 @@
 using Kinetix.OrderService.Application.Fulfillment;
 using Kinetix.OrderService.Application.Delivery;
 using Kinetix.OrderService.Application.Returns;
-using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
-using Microsoft.IdentityModel.Tokens;
 using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Infrastructure.Grpc;
@@ -115,19 +113,18 @@ var grpcDeadline = TimeSpan.FromSeconds(
     );
 builder.Services.AddSingleton(new GrpcDeadlineInterceptor(grpcDeadline));
 
-HttpMessageHandler MeshHandler() => new SocketsHttpHandler {
-    SslOptions = new SslClientAuthenticationOptions {
-        ClientCertificates = new X509Certificate2Collection(serviceIdentity.Leaf),
-        RemoteCertificateValidationCallback = (_, cert, _, _) =>
-            cert is X509Certificate2 c && serviceIdentity.IsIssuedByOurCa(c),
-    },
-};
+HttpMessageHandler MeshHandler(IServiceProvider services, string expectedService) =>
+    MeshClientHandler.For(
+        serviceIdentity,
+        expectedService,
+        services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(MeshClientHandler))
+    );
 
 var pricingAddress = AsMesh(pricingGrpcUrl);
 
 builder.Services.AddGrpcClient<PricingService.PricingServiceClient>(options => {
     options.Address = pricingAddress;
-}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+}).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "pricing"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
       pricingAddress.Host, services.GetRequiredService<KinetixMetrics>()
   ))
@@ -157,7 +154,7 @@ var matchingAddress = AsMesh(matchingGrpcUrl);
 
 builder.Services.AddGrpcClient<Shipping.V1.ShippingService.ShippingServiceClient>(options => {
     options.Address = matchingAddress;
-}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+}).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "matching"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
       matchingAddress.Host, services.GetRequiredService<KinetixMetrics>()
   ))
@@ -169,7 +166,7 @@ var catalogAddress = AsMesh(catalogGrpcUrl);
 
 builder.Services.AddGrpcClient<Catalog.V1.CatalogService.CatalogServiceClient>(options => {
     options.Address = catalogAddress;
-}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+}).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "catalog"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
       catalogAddress.Host, services.GetRequiredService<KinetixMetrics>()
   ))
@@ -185,7 +182,7 @@ var identityAddress = AsMesh(identityGrpcUrl);
 
 builder.Services.AddGrpcClient<Fulfillment.V1.BinStockService.BinStockServiceClient>(options => {
     options.Address = warehouseAddress;
-}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+}).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "warehouse"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
       warehouseAddress.Host, services.GetRequiredService<KinetixMetrics>()
   ))
@@ -194,7 +191,7 @@ builder.Services.AddGrpcClient<Fulfillment.V1.BinStockService.BinStockServiceCli
 
 builder.Services.AddGrpcClient<Fulfillment.V1.FulfillmentTaskService.FulfillmentTaskServiceClient>(options => {
     options.Address = warehouseAddress;
-}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+}).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "warehouse"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
       warehouseAddress.Host, services.GetRequiredService<KinetixMetrics>()
   ))
@@ -203,7 +200,7 @@ builder.Services.AddGrpcClient<Fulfillment.V1.FulfillmentTaskService.Fulfillment
 
 builder.Services.AddGrpcClient<Fleet.V1.CourierTelemetryService.CourierTelemetryServiceClient>(options => {
     options.Address = matchingAddress;
-}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+}).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "matching"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
       matchingAddress.Host, services.GetRequiredService<KinetixMetrics>()
   ))
@@ -212,7 +209,7 @@ builder.Services.AddGrpcClient<Fleet.V1.CourierTelemetryService.CourierTelemetry
 
 builder.Services.AddGrpcClient<Payment.V1.PaymentService.PaymentServiceClient>(options => {
     options.Address = paymentAddress;
-}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+}).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "payment"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
       paymentAddress.Host, services.GetRequiredService<KinetixMetrics>()
   ))
@@ -221,7 +218,7 @@ builder.Services.AddGrpcClient<Payment.V1.PaymentService.PaymentServiceClient>(o
 
 builder.Services.AddGrpcClient<Identity.V1.IdentityService.IdentityServiceClient>(options => {
     options.Address = identityAddress;
-}).ConfigurePrimaryHttpMessageHandler(MeshHandler)
+}).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "identity"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
       identityAddress.Host, services.GetRequiredService<KinetixMetrics>()
   ))
@@ -240,21 +237,13 @@ builder.Services.AddHttpClient();
 builder.Services.AddSingleton<JwksKeyProvider>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options => {
-        options.RequireHttpsMetadata = false;
-        options.TokenValidationParameters = new TokenValidationParameters {
-            ValidateIssuer = true,
-            ValidIssuer = builder.Configuration["JWT_ISSUER"]
-                ?? throw new InvalidOperationException("JWT_ISSUER is required and has no default."),
-            ValidateAudience = true,
-            ValidAudience = builder.Configuration["JWT_AUDIENCE"]
-                ?? throw new InvalidOperationException("JWT_AUDIENCE is required and has no default."),
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
-            RoleClaimType = "role",
-        };
-    });
+    .AddJwtBearer(options => AccessTokenValidation.Apply(
+        options,
+        builder.Configuration["JWT_ISSUER"]
+            ?? throw new InvalidOperationException("JWT_ISSUER is required and has no default."),
+        builder.Configuration["JWT_AUDIENCE"]
+            ?? throw new InvalidOperationException("JWT_AUDIENCE is required and has no default.")
+    ));
 
 builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
     .Configure<JwksKeyProvider>((options, jwks) => {
