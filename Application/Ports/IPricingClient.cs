@@ -5,7 +5,10 @@ namespace Kinetix.OrderService.Application.Ports;
 
 public interface IPricingClient {
     Task<PriceCalculationResult> CalculatePriceAsync(
-        string? voucherCode, IReadOnlyList<PriceLine> lines, ShippingJourney? shipping
+        string? voucherCode,
+        IReadOnlyList<PriceLine> lines,
+        ShippingJourney? shipping,
+        string merchantPrincipalId
     );
 
     Task<IReadOnlyList<QuotedShippingResult>> QuoteShippingAsync(

@@ -55,7 +55,10 @@ public class PricingGrpcClient(
         };
 
     public async Task<PriceCalculationResult> CalculatePriceAsync(
-        string? voucherCode, IReadOnlyList<PriceLine> lines, ShippingJourney? shipping
+        string? voucherCode,
+        IReadOnlyList<PriceLine> lines,
+        ShippingJourney? shipping,
+        string merchantPrincipalId
     ) {
 
         if (lines.Count == 0 && shipping is null) {
@@ -64,7 +67,8 @@ public class PricingGrpcClient(
 
         try {
             var request = new CalculatePriceRequest {
-                VoucherCode = voucherCode ?? string.Empty
+                VoucherCode = voucherCode ?? string.Empty,
+                MerchantPrincipalId = merchantPrincipalId
             };
 
             if (shipping is not null) {
@@ -93,7 +97,8 @@ public class PricingGrpcClient(
                     item.ProductId,
                     item.Quantity,
                     string.IsNullOrWhiteSpace(item.AppliedFlashSale) ? null : item.AppliedFlashSale
-                ))]
+                ))],
+                string.IsNullOrWhiteSpace(response.AppliedVoucher) ? null : response.AppliedVoucher
             );
         } catch (Exception ex) {
             _logger.LogError(

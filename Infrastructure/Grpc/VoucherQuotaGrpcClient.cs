@@ -12,12 +12,18 @@ public class VoucherQuotaGrpcClient(
     private readonly PricingService.PricingServiceClient _client = client;
     private readonly ILogger<VoucherQuotaGrpcClient> _logger = logger;
 
-    public async Task<StepResult> RedeemVoucherAsync(string voucherCode, string orderNumber, string customerPrincipalId) {
+    public async Task<StepResult> RedeemVoucherAsync(
+        string voucherCode,
+        string orderNumber,
+        string customerPrincipalId,
+        string merchantPrincipalId
+    ) {
         try {
             var response = await _client.RedeemVoucherAsync(new RedeemVoucherRequest {
                 VoucherCode = voucherCode,
                 OrderNumber = orderNumber,
                 CustomerPrincipalId = customerPrincipalId,
+                MerchantPrincipalId = merchantPrincipalId,
             });
 
             if (!response.Success) {
