@@ -55,8 +55,9 @@ public class OrderServiceTests {
             );
 
         pricing.Setup(p => p.CalculatePriceAsync(
-            It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>()
-        )).ReturnsAsync((string? _, IReadOnlyList<PriceLine> _, ShippingJourney? shipping) => {
+            It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(),
+            It.IsAny<string>()
+        )).ReturnsAsync((string? _, IReadOnlyList<PriceLine> _, ShippingJourney? shipping, string _) => {
             decimal fee = shipping is null ? 0m : RateCard.GetValueOrDefault(shipping.ServiceTier);
 
             return new PriceCalculationResult(200000m, 20000m, fee, 0m, fee, 180000m + fee, []);
@@ -98,10 +99,11 @@ public class OrderServiceTests {
         IPricingClient pricing,
         IShippingClient shipping,
         IEscrowClient? escrowClient = null,
-        IProductDirectory? catalog = null
+        IProductDirectory? catalog = null,
+        IVoucherQuotaClient? voucherClient = null
     ) {
         var voucher = new Mock<IVoucherQuotaClient>();
-        voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+        voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
 
         var flash = new Mock<IFlashSaleClient>();
@@ -122,7 +124,7 @@ public class OrderServiceTests {
         fulfilment.Setup(c => c.CancelTaskAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
 
-        var runner = new CheckoutSagaRunner(db, voucher.Object, flash.Object, stock.Object, escrow,
+        var runner = new CheckoutSagaRunner(db, voucherClient ?? voucher.Object, flash.Object, stock.Object, escrow,
             fulfilment.Object,
             new FakeSagaLeaseStore(db, policy), policy, new RequestIdAccessor(new HttpContextAccessor()),
             NullLogger<CheckoutSagaRunner>.Instance
@@ -140,13 +142,6 @@ public class OrderServiceTests {
         return new OrderDbContext(options);
     }
 
-    /// <summary>
-    /// Catalog as the tests' default cart describes it — one merchant, one price.
-    /// </summary>
-    /// <remarks>
-    /// The price and the merchant are read from here now, not from the cart, so a test that wants a
-    /// different answer sets one up rather than writing it into a cart item.
-    /// </remarks>
     private static Mock<IProductDirectory> CatalogAnswering() {
         var catalog = new Mock<IProductDirectory>();
         catalog.Setup(c => c.GetProductAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -155,9 +150,6 @@ public class OrderServiceTests {
         return catalog;
     }
 
-    /// <summary>
-    /// Catalog naming a merchant per product, for the tests that are about who gets paid.
-    /// </summary>
     private static Mock<IProductDirectory> CatalogNaming(params (string Sku, string Merchant)[] products) {
         var catalog = new Mock<IProductDirectory>();
         foreach (var (sku, merchant) in products) {
@@ -187,8 +179,9 @@ public class OrderServiceTests {
         QuotingFromTheRateCard(pricing);
 
         pricing.Setup(p => p.CalculatePriceAsync(
-            It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>()
-        )).ReturnsAsync((string? _, IReadOnlyList<PriceLine> _, ShippingJourney? shipping) => {
+            It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(),
+            It.IsAny<string>()
+        )).ReturnsAsync((string? _, IReadOnlyList<PriceLine> _, ShippingJourney? shipping, string _) => {
             decimal baseShippingFee = shipping is null
                 ? 0m
                 : RateCard.GetValueOrDefault(shipping.ServiceTier);
@@ -239,7 +232,8 @@ public class OrderServiceTests {
         ), Times.Once);
 
         pricing.Verify(p => p.CalculatePriceAsync(
-            It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_INSTANT")
+            It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_INSTANT"),
+            It.IsAny<string>()
         ), Times.Once);
 
         Assert.Equal(15000m, result.BaseShippingFee);
@@ -717,10 +711,15 @@ public class OrderServiceTests {
 
         var pricing = PricingPassingShippingThrough();
         IReadOnlyList<PriceLine> seen = [];
+        string? pricedFor = null;
         pricing.Setup(p => p.CalculatePriceAsync(
-            It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>()
-        )).Callback((string? _, IReadOnlyList<PriceLine> lines, ShippingJourney? _) => seen = lines)
-          .ReturnsAsync((string? _, IReadOnlyList<PriceLine> lines, ShippingJourney? journey) => {
+            It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(),
+            It.IsAny<string>()
+        )).Callback((string? _, IReadOnlyList<PriceLine> lines, ShippingJourney? _, string merchant) => {
+            seen = lines;
+            pricedFor = merchant;
+        })
+          .ReturnsAsync((string? _, IReadOnlyList<PriceLine> lines, ShippingJourney? journey, string _) => {
               decimal subtotal = lines.Sum(l => l.UnitPrice * l.Quantity);
               decimal baseShippingFee = journey is null ? 0m : RateCard.GetValueOrDefault(journey.ServiceTier);
               return new PriceCalculationResult(subtotal, 0m, baseShippingFee, 0m, baseShippingFee,
@@ -746,6 +745,7 @@ public class OrderServiceTests {
         var order = Assert.Single(dbContext.Orders);
         Assert.Equal(Merchant, order.MerchantPrincipalId);
         Assert.Equal(200000m, order.Subtotal);
+        Assert.Equal(Merchant, pricedFor);
     }
 
     [Fact]
@@ -967,7 +967,7 @@ public class OrderServiceTests {
         var pricing = new Mock<IPricingClient>();
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
-                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>()))
+                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 9000m, 0m, 12000m, 192000m, []));
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
@@ -990,7 +990,7 @@ public class OrderServiceTests {
         var pricing = new Mock<IPricingClient>();
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
-                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>()))
+                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 9000m, 12000m, -3000m, 177000m, []));
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
@@ -1011,7 +1011,7 @@ public class OrderServiceTests {
         var pricing = new Mock<IPricingClient>();
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
-                "FREE_SHIP", It.IsAny<IReadOnlyList<PriceLine>>(), It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_REGULAR")))
+                "FREE_SHIP", It.IsAny<IReadOnlyList<PriceLine>>(), It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_REGULAR"), It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 0m, 9000m, 9000m, 0m, 200000m, []));
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
@@ -1056,7 +1056,7 @@ public class OrderServiceTests {
         QuotingFromTheRateCard(pricing);
         var shipping = ShippingReturning(RateCardFloor());
 
-        pricing.Setup(p => p.CalculatePriceAsync("DISCOUNT10", It.IsAny<IReadOnlyList<PriceLine>>(), It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_INSTANT")))
+        pricing.Setup(p => p.CalculatePriceAsync("DISCOUNT10", It.IsAny<IReadOnlyList<PriceLine>>(), It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_INSTANT"), It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 15000m, 0m, 15000m, 195000m, []));
 
         var orderService = NewOrderService(dbContext, cartService.Object, pricing.Object, shipping.Object);
@@ -1075,7 +1075,61 @@ public class OrderServiceTests {
         Assert.Equal(0.0, result.DistanceKm);
 
         cartService.Verify(s => s.ClearCartAsync(Customer), Times.Once);
-        pricing.Verify(p => p.CalculatePriceAsync("DISCOUNT10", It.IsAny<IReadOnlyList<PriceLine>>(), It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_INSTANT")), Times.Once);
+        pricing.Verify(p => p.CalculatePriceAsync("DISCOUNT10", It.IsAny<IReadOnlyList<PriceLine>>(), It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_INSTANT"), It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_AVoucherPricingDidNotApply_IsNeitherRecordedNorRedeemed() {
+        using var dbContext = GetInMemoryDbContext();
+        var pricing = new Mock<IPricingClient>();
+        QuotingFromTheRateCard(pricing);
+        pricing.Setup(p => p.CalculatePriceAsync(
+            "OTHER-SHOP", It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), Merchant
+        )).ReturnsAsync(new PriceCalculationResult(200000m, 0m, 15000m, 0m, 15000m, 215000m, [], AppliedVoucher: null));
+        var voucher = new Mock<IVoucherQuotaClient>();
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
+            ShippingReturning(RateCardFloor()).Object,
+            voucherClient: voucher.Object
+        );
+        var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "OTHER-SHOP", "KINETIX_INSTANT", Buyer, BuyerPhone);
+
+        var result = await orderService.CheckoutAsync(Customer, request, "IDEMP-VOUCHER-ELSEWHERE");
+
+        Assert.Equal("PAID", result.Status);
+        Assert.Null(Assert.Single(dbContext.Orders).AppliedVoucher);
+        voucher.Verify(
+            c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
+            Times.Never
+        );
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_AVoucherPricingApplied_IsRedeemedAgainstTheCatalogsMerchant() {
+        using var dbContext = GetInMemoryDbContext();
+        var pricing = new Mock<IPricingClient>();
+        QuotingFromTheRateCard(pricing);
+        pricing.Setup(p => p.CalculatePriceAsync(
+            "SHOP10", It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), Merchant
+        )).ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 15000m, 0m, 15000m, 195000m, [], AppliedVoucher: "SHOP10"));
+        var voucher = new Mock<IVoucherQuotaClient>();
+        voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .ReturnsAsync(StepResult.Ok());
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
+            ShippingReturning(RateCardFloor()).Object,
+            voucherClient: voucher.Object
+        );
+        var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "SHOP10", "KINETIX_INSTANT", Buyer, BuyerPhone);
+
+        var result = await orderService.CheckoutAsync(Customer, request, "IDEMP-VOUCHER-HERE");
+
+        Assert.Equal("PAID", result.Status);
+        Assert.Equal("SHOP10", Assert.Single(dbContext.Orders).AppliedVoucher);
+        voucher.Verify(
+            c => c.RedeemVoucherAsync("SHOP10", result.OrderNumber, Customer, Merchant),
+            Times.Once
+        );
     }
 
     [Fact]
@@ -1119,7 +1173,8 @@ public class OrderServiceTests {
             );
         pricing.Setup(p => p.CalculatePriceAsync(
             It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(),
-            It.Is<ShippingJourney?>(j => j!.DistanceKm == 660.0)
+            It.Is<ShippingJourney?>(j => j!.DistanceKm == 660.0),
+            It.IsAny<string>()
         )).ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 58500m, 0m, 58500m, 238500m, []));
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
@@ -1178,7 +1233,7 @@ public class OrderServiceTests {
         var pricing = new Mock<IPricingClient>();
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
-                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>()))
+                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 0m, 9000m, 0m, 9000m, 1m, []));
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
@@ -1203,7 +1258,7 @@ public class OrderServiceTests {
         var pricing = new Mock<IPricingClient>();
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
-                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>()))
+                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 300000m, 9000m, 0m, 9000m, -91000m, []));
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
@@ -1227,7 +1282,7 @@ public class OrderServiceTests {
         var pricing = new Mock<IPricingClient>();
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
-                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>()))
+                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 9000m, 0.996m, 8999.004m,
                 188999.004m, []));
 

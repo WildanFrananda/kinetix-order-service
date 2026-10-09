@@ -7,5 +7,6 @@ public record PriceCalculationResult(
     decimal ShippingDiscount,
     decimal FinalShippingFee,
     decimal FinalTotal,
-    IReadOnlyList<PricedLine> Lines
+    IReadOnlyList<PricedLine> Lines,
+    string? AppliedVoucher = null
 );

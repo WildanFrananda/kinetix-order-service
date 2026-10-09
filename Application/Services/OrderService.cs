@@ -51,7 +51,7 @@ public class OrderService(
             throw new EmptyCartException();
         }
 
-        string? appliedVoucher = request.VoucherCode ?? cart.AppliedVoucherCode;
+        string? requestedVoucher = request.VoucherCode ?? cart.AppliedVoucherCode;
 
         var products = new List<CatalogProduct>(cart.Items.Count);
         foreach (var item in cart.Items) {
@@ -69,8 +69,13 @@ public class OrderService(
             .ToList();
 
         var priceResult = await _pricingClient.CalculatePriceAsync(
-            appliedVoucher, priceLines, shippingQuote.Journey
+            requestedVoucher,
+            priceLines,
+            shippingQuote.Journey,
+            merchantPrincipalId
         );
+
+        string? appliedVoucher = priceResult.AppliedVoucher;
 
         if (
             priceResult.FinalShippingFee < 0m || priceResult.FinalShippingFee > priceResult.BaseShippingFee

@@ -45,7 +45,7 @@ public class CheckoutSagaRunnerTests {
 
     private static (Mock<IVoucherQuotaClient>, Mock<IFlashSaleClient>, Mock<IStockClient>, Mock<IEscrowClient>) AllAgreeing() {
         var voucher = new Mock<IVoucherQuotaClient>();
-        voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+        voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
         voucher.Setup(c => c.ReleaseVoucherAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
@@ -735,7 +735,7 @@ public class CheckoutSagaRunnerTests {
         var outcome = await Runner(db, voucher, flash, stock, escrow).RunAsync(PlanWith(null, ["SKU-1"]));
 
         Assert.True(outcome.Succeeded);
-        voucher.Verify(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        voucher.Verify(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
         Assert.DoesNotContain(await db.CheckoutSagaSteps.ToListAsync(), s => s.Name == SagaStepName.RedeemVoucher);
     }
 

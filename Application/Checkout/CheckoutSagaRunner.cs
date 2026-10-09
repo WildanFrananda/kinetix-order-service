@@ -153,7 +153,11 @@ public class CheckoutSagaRunner(
 
             var step = await BeginStep(saga, SagaStepName.RedeemVoucher, plan.VoucherCode!, 1);
             var result = await _voucherClient.RedeemVoucherAsync(
-                plan.VoucherCode!, plan.OrderNumber, plan.CustomerPrincipalId);
+                plan.VoucherCode!,
+                plan.OrderNumber,
+                plan.CustomerPrincipalId,
+                plan.MerchantPrincipalId
+            );
             var settled = await Settle(lease, step, result);
             if (settled is null) {
                 return ForwardPassOutcome.Lost();
