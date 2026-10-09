@@ -1,6 +1,7 @@
 using Kinetix.OrderService.Application.Fulfillment;
 using Kinetix.OrderService.Application.Delivery;
 using Kinetix.OrderService.Application.Returns;
+using Kinetix.OrderService.Application.Completion;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
@@ -250,10 +251,7 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
     .Configure<JwksKeyProvider>((options, jwks) => {
         options.TokenValidationParameters.IssuerSigningKeyResolver = jwks.Resolve;
     });
-builder.Services.AddAuthorizationBuilder()
-    .AddPolicy(Kinetix.OrderService.Controllers.SagaAdminController.SagaOperatorPolicy, policy =>
-        policy.RequireAuthenticatedUser().RequireRole(StaffRoles.All)
-    );
+builder.Services.AddAuthorizationBuilder().AddOrderPolicies();
 
 builder.Services.AddScoped<IPricingClient, PricingGrpcClient>();
 builder.Services.AddScoped<IShippingClient, ShippingGrpcClient>();
@@ -267,6 +265,11 @@ builder.Services.AddScoped<IFulfillmentClient, FulfillmentGrpcClient>();
 builder.Services.AddScoped<IFulfillmentPackedHandler, FulfillmentPackedHandler>();
 builder.Services.AddScoped<IOrderDeliveredHandler, OrderDeliveredHandler>();
 builder.Services.AddScoped<IReturnsHandler, ReturnsHandler>();
+builder.Services.AddScoped<IReturnRefunds, ReturnRefunds>();
+builder.Services.AddScoped<IReturnRejection, ReturnRejection>();
+builder.Services.AddScoped<IOrderRowLock, OrderRowLock>();
+builder.Services.AddScoped<IOrderCompletion, OrderCompletion>();
+builder.Services.AddSingleton(ReturnWindow.FromConfiguration(builder.Configuration));
 
 builder.Services.AddSingleton<SagaWorkerIdentity>();
 builder.Services.AddSingleton(CompensationPolicy.FromConfiguration(builder.Configuration));
@@ -277,6 +280,7 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 
 builder.Services.AddHostedService<StuckSagaSweeper>();
 builder.Services.AddHostedService<ShippingSettlementSweeper>();
+builder.Services.AddHostedService<OrderCompletionSweeper>();
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<RequestIdAccessor>();

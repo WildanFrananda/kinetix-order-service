@@ -91,6 +91,36 @@ public class EscrowGrpcClient(
         );
     }
 
+    public async Task<StepResult> ReleaseHoldAsync(string orderNumber) {
+        var response = await _client.ReleaseEscrowAsync(new PaymentProto.ReleaseEscrowRequest {
+            OrderNumber = orderNumber,
+            IdempotencyKey = KeyFor(orderNumber),
+        });
+
+        if (response.Found) {
+            return response.AlreadyApplied ? StepResult.Repeat() : StepResult.Ok();
+        }
+
+        return StepResult.Absent(response.AlreadyApplied, "payment held nothing to release for this order");
+    }
+
+    public async Task<StepResult> RefundGoodsAsync(
+        string orderNumber, decimal amount, string reason, string idempotencyKey
+    ) {
+        var response = await _client.RefundGoodsAsync(new PaymentProto.RefundGoodsRequest {
+            OrderNumber = orderNumber,
+            Amount = ToMoney(amount),
+            Reason = reason,
+            IdempotencyKey = new IdempotencyKey { Key = idempotencyKey },
+        });
+
+        if (response.Found) {
+            return response.AlreadyApplied ? StepResult.Repeat() : StepResult.Ok();
+        }
+
+        return StepResult.Absent(response.AlreadyApplied, "payment held nothing to refund goods from");
+    }
+
     public async Task<StepResult> SettleShippingFeeAsync(
         string orderNumber, string driverPrincipalId
     ) {
