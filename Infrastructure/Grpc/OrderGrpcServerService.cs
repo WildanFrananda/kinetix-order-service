@@ -152,7 +152,7 @@ public class OrderGrpcServerService(
             return new OrderProto.FulfillmentPackedResponse {
                 Success = false,
                 Error = new ErrorDetail {
-                    ErrorCode = "NO_SUCH_ORDER",
+                    ErrorCode = outcome.RefusalCode ?? "NO_SUCH_ORDER",
                     Message = outcome.Detail ?? "no order carries that number"
                 }
             };

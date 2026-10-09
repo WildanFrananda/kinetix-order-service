@@ -33,8 +33,21 @@ public class FulfillmentPackedHandler(
             return new FulfillmentPackedOutcome(false, false, string.Empty, "no order carries that number");
         }
 
+        if (!string.Equals(order.MerchantPrincipalId, merchantPrincipalId, StringComparison.Ordinal)) {
+            return new FulfillmentPackedOutcome(
+                false, false, string.Empty, "that order is not that merchant's", "NOT_THIS_MERCHANTS_ORDER"
+            );
+        }
+
         if (order.Status is DomainStatus.SHIPPED or DomainStatus.DELIVERED or DomainStatus.COMPLETED) {
             return new FulfillmentPackedOutcome(true, true, string.Empty, null);
+        }
+
+        if (order.Status is not (DomainStatus.PAID or DomainStatus.PROCESSING_FULFILLMENT)) {
+            return new FulfillmentPackedOutcome(
+                false, false, string.Empty, $"the order is {order.Status}, so there is nothing to send",
+                "ORDER_NOT_AWAITING_FULFILMENT"
+            );
         }
 
         order.Status = DomainStatus.PROCESSING_FULFILLMENT;

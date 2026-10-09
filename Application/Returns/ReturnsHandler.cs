@@ -33,6 +33,10 @@ public class ReturnsHandler(
             return Refused("no order carries that number");
         }
 
+        if (!string.Equals(order.MerchantPrincipalId, merchantPrincipalId, StringComparison.Ordinal)) {
+            return Refused("that order is not that merchant's");
+        }
+
         var existing = await _dbContext.OrderReturns
             .FirstOrDefaultAsync(r => r.OrderNumber == orderNumber);
 

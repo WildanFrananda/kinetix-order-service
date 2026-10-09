@@ -30,7 +30,7 @@ public class OrderChangeFeedTests {
 
     private static OrderApplicationService FeedOver(OrderDbContext db) =>
         new(db, new Mock<ICartService>().Object, new Mock<IProductDirectory>().Object,
-            new Mock<IPricingClient>().Object, new Mock<IShippingClient>().Object, null!,
+            new Mock<IMerchantStanding>().Object, new Mock<IPricingClient>().Object, new Mock<IShippingClient>().Object, null!,
             NullLogger<Kinetix.OrderService.Application.Services.OrderService>.Instance
         );
 

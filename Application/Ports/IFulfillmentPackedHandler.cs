@@ -12,5 +12,6 @@ public record FulfillmentPackedOutcome(
     bool Found,
     bool AlreadyPacked,
     string DispatchRef,
-    string? Detail
+    string? Detail,
+    string? RefusalCode = null
 );

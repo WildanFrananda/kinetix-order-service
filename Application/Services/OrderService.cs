@@ -18,6 +18,7 @@ public class OrderService(
     OrderDbContext dbContext,
     ICartService cartService,
     IProductDirectory products,
+    IMerchantStanding merchants,
     IPricingClient pricingClient,
     IShippingClient shippingClient,
     CheckoutSagaRunner sagaRunner,
@@ -26,6 +27,7 @@ public class OrderService(
     private readonly OrderDbContext _dbContext = dbContext;
     private readonly ICartService _cartService = cartService;
     private readonly IProductDirectory _products = products;
+    private readonly IMerchantStanding _merchants = merchants;
     private readonly IPricingClient _pricingClient = pricingClient;
     private readonly IShippingClient _shippingClient = shippingClient;
     private readonly CheckoutSagaRunner _sagaRunner = sagaRunner;
@@ -59,6 +61,10 @@ public class OrderService(
         }
 
         string merchantPrincipalId = ResolveMerchantPrincipal(products);
+
+        if (!await _merchants.MaySellAsync(merchantPrincipalId)) {
+            throw new MerchantMayNotSellException(merchantPrincipalId);
+        }
 
         var shippingQuote = await QuoteShippingAsync(request.ShippingServiceTier, merchantPrincipalId);
         decimal baseShippingFee = shippingQuote.BaseShippingFee;

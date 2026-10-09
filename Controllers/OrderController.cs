@@ -99,6 +99,13 @@ public class OrderController(IOrderService orderService) : ControllerBase {
             return BadRequest(new { error = "CART_EMPTY", message = ex.Message });
         } catch (CartItemsHaveNoMerchantException ex) {
             return BadRequest(new { error = "CART_ITEMS_HAVE_NO_MERCHANT", message = ex.Message });
+        } catch (MerchantMayNotSellException ex) {
+            return Conflict(new { error = "MERCHANT_NOT_TRADING", message = ex.Message });
+        } catch (MerchantStandingUnknownException ex) {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
+                error = "IDENTITY_UNAVAILABLE",
+                message = ex.Message + ". Nothing has been charged or reserved; try again shortly.",
+            });
         } catch (CartSpansTwoMerchantsException ex) {
             return BadRequest(new {
                 error = "CART_SPANS_TWO_MERCHANTS",
