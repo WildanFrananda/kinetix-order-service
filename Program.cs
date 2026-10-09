@@ -251,7 +251,7 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
     });
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(Kinetix.OrderService.Controllers.SagaAdminController.SagaOperatorPolicy, policy =>
-        policy.RequireAuthenticatedUser().RequireRole("operator", "admin")
+        policy.RequireAuthenticatedUser().RequireRole(StaffRoles.All)
     );
 
 builder.Services.AddScoped<IPricingClient, PricingGrpcClient>();

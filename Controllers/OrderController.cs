@@ -5,6 +5,8 @@ using Kinetix.OrderService.Application.Exceptions;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.DTOs.Requests;
+using Kinetix.OrderService.DTOs.Responses;
+using Kinetix.OrderService.Security;
 
 namespace Kinetix.OrderService.Controllers;
 
@@ -134,25 +136,12 @@ public class OrderController(IOrderService orderService) : ControllerBase {
     [HttpGet("{orderId:guid}")]
     public async Task<IActionResult> GetOrderById(Guid orderId) {
         var order = await _orderService.GetOrderByIdAsync(orderId);
-        if (order == null) {
+        if (order == null || !MayRead(order)) {
             return NotFound(new { error = "ORDER_NOT_FOUND", message = $"Order '{orderId}' not found" });
         }
         return Ok(order);
     }
 
-    [HttpPut("{orderId:guid}/status")]
-    public async Task<IActionResult> TransitionStatus(Guid orderId, [FromBody] UpdateOrderStatusRequest request) {
-        if (!Enum.TryParse<OrderStatus>(request.Status, true, out var newStatus)) {
-            return BadRequest(new { error = "INVALID_STATUS", message = $"Status '{request.Status}' is not valid" });
-        }
-
-        try {
-            var order = await _orderService.TransitionOrderStatusAsync(orderId, newStatus);
-            return Ok(order);
-        } catch (KeyNotFoundException ex) {
-            return NotFound(new { error = "ORDER_NOT_FOUND", message = ex.Message });
-        } catch (InvalidOperationException ex) {
-            return BadRequest(new { error = "INVALID_TRANSITION", message = ex.Message });
-        }
-    }
+    private bool MayRead(OrderResponse order) =>
+        (TryGetCallerPrincipal(out var caller) && order.CustomerPrincipalId == caller) || StaffRoles.Includes(User);
 }

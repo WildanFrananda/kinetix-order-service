@@ -1079,55 +1079,6 @@ public class OrderServiceTests {
     }
 
     [Fact]
-    public async Task TransitionOrderStatusAsync_ValidTransition_UpdatesStatus() {
-        using var dbContext = GetInMemoryDbContext();
-        var mockCartService = new Mock<ICartService>();
-        var mockPricingClient = new Mock<IPricingClient>();
-
-        var order = new OrderEntity {
-            OrderNumber = "ORD-20260815-001",
-            CustomerPrincipalId = Customer,
-            Status = OrderStatus.PENDING_PAYMENT,
-            Subtotal = 100000m,
-            FinalTotal = 100000m,
-            ShippingAddress = "Jl. Sudirman No. 45, Jakarta"
-        };
-        dbContext.Orders.Add(order);
-        await dbContext.SaveChangesAsync();
-
-        var orderService = NewOrderService(dbContext, mockCartService.Object, mockPricingClient.Object,
-            ShippingReturning(RateCardFloor()).Object);
-
-        var result = await orderService.TransitionOrderStatusAsync(order.Id, OrderStatus.PAID);
-
-        Assert.Equal("PAID", result.Status);
-    }
-
-    [Fact]
-    public async Task TransitionOrderStatusAsync_InvalidTransition_ThrowsException() {
-        using var dbContext = GetInMemoryDbContext();
-        var mockCartService = new Mock<ICartService>();
-        var mockPricingClient = new Mock<IPricingClient>();
-
-        var order = new OrderEntity {
-            OrderNumber = "ORD-20260815-002",
-            CustomerPrincipalId = Customer,
-            Status = OrderStatus.PENDING_PAYMENT,
-            Subtotal = 100000m,
-            FinalTotal = 100000m,
-            ShippingAddress = "Jl. Sudirman No. 45, Jakarta"
-        };
-        dbContext.Orders.Add(order);
-        await dbContext.SaveChangesAsync();
-
-        var orderService = NewOrderService(dbContext, mockCartService.Object, mockPricingClient.Object,
-            ShippingReturning(RateCardFloor()).Object);
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            orderService.TransitionOrderStatusAsync(order.Id, OrderStatus.DELIVERED));
-    }
-
-    [Fact]
     public async Task LegacyRowsReadBackAsClientSupplied() {
         using var dbContext = GetInMemoryDbContext();
 

@@ -485,42 +485,6 @@ public class OrderService(
         );
     }
 
-    public async Task<OrderResponse> TransitionOrderStatusAsync(Guid orderId, OrderStatus newStatus) {
-        var order = await _dbContext.Orders
-            .Include(o => o.Items)
-            .FirstOrDefaultAsync(o => o.Id == orderId)
-            ?? throw new KeyNotFoundException($"OrderEntity '{orderId}' not found");
-
-        ValidateStateTransition(order.Status, newStatus);
-
-        order.Status = newStatus;
-        order.UpdatedAt = DateTime.UtcNow;
-
-        await _dbContext.SaveChangesAsync();
-        return MapToOrderResponse(order);
-    }
-
-    private static void ValidateStateTransition(OrderStatus currentStatus, OrderStatus newStatus) {
-        if (currentStatus == newStatus) return;
-
-        bool isValid = (currentStatus, newStatus) switch {
-            (OrderStatus.PENDING_PAYMENT, OrderStatus.PAID) => true,
-            (OrderStatus.PENDING_PAYMENT, OrderStatus.CANCELLED) => true,
-            (OrderStatus.PAID, OrderStatus.PROCESSING_FULFILLMENT) => true,
-            (OrderStatus.PAID, OrderStatus.CANCELLED) => true,
-            (OrderStatus.PROCESSING_FULFILLMENT, OrderStatus.SHIPPED) => true,
-            (OrderStatus.SHIPPED, OrderStatus.DELIVERED) => true,
-            (OrderStatus.DELIVERED, OrderStatus.COMPLETED) => true,
-            (OrderStatus.PAID, OrderStatus.REFUNDED) => true,
-            (OrderStatus.PROCESSING_FULFILLMENT, OrderStatus.REFUNDED) => true,
-            _ => false
-        };
-
-        if (!isValid) {
-            throw new InvalidOperationException($"Invalid order state transition from '{currentStatus}' to '{newStatus}'");
-        }
-    }
-
     private static OrderResponse MapToOrderResponse(OrderEntity order) => new(
         order.Id,
         order.OrderNumber,
