@@ -92,5 +92,11 @@ public class Order {
     [Column("updated_at")]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    [Column("delivered_at")]
+    public DateTime? DeliveredAt { get; set; }
+
+    [Column("completed_at")]
+    public DateTime? CompletedAt { get; set; }
+
     public List<OrderItem> Items { get; set; } = [];
 }

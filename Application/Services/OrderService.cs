@@ -101,6 +101,7 @@ public class OrderService(
 
         decimal merchantAmount = priceResult.Subtotal - priceResult.VoucherDiscount;
         var unchargeable = UnchargeableAmounts(priceResult, merchantAmount);
+        var pricedItems = PricedItems(cart.Items, products, priceResult, unchargeable);
 
         if (unchargeable.Count > 0) {
             _logger.LogError(
@@ -136,13 +137,7 @@ public class OrderService(
             IdempotencyKey = idempotencyKey,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
-            Items = [.. cart.Items.Select(item => new OrderItem {
-                ProductId = item.ProductId,
-                ProductTitle = item.ProductTitle,
-                UnitPrice = item.UnitPrice,
-                Quantity = item.Quantity,
-                LineSubtotal = item.LineTotal
-            })]
+            Items = pricedItems
         };
 
         _dbContext.Orders.Add(order);
@@ -217,6 +212,45 @@ public class OrderService(
     }
 
     private static string Amount(decimal value) => value.ToString(CultureInfo.InvariantCulture);
+
+    private static List<OrderItem> PricedItems(
+        IReadOnlyList<CartItem> cartItems,
+        IReadOnlyList<CatalogProduct> products,
+        PriceCalculationResult price,
+        List<string> faults
+    ) {
+        var items = new List<OrderItem>(cartItems.Count);
+
+        for (int index = 0; index < cartItems.Count; index++) {
+            var product = products[index];
+            var quantity = cartItems[index].Quantity;
+            var priced = price.Lines.FirstOrDefault(line =>
+                string.Equals(line.ProductId, product.ProductId, StringComparison.Ordinal)
+            );
+
+            if (priced is null || priced.Quantity != quantity) {
+                faults.Add($"pricing did not price {quantity} of {product.ProductId}");
+                continue;
+            }
+
+            items.Add(new OrderItem {
+                ProductId = product.ProductId,
+                ProductTitle = product.Title,
+                UnitPrice = priced.FinalUnitPrice,
+                Quantity = quantity,
+                LineSubtotal = priced.LineTotal,
+            });
+        }
+
+        decimal pricedTotal = items.Sum(item => item.LineSubtotal);
+        if (faults.Count == 0 && pricedTotal != price.Subtotal) {
+            faults.Add(
+                $"the priced lines come to {Amount(pricedTotal)} but the subtotal is {Amount(price.Subtotal)}"
+            );
+        }
+
+        return items;
+    }
 
     private static List<string> UnchargeableAmounts(PriceCalculationResult price, decimal merchantAmount) {
         var faults = new List<string>();

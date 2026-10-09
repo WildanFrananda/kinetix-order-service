@@ -49,6 +49,13 @@ public class OrderDeliveredHandlerTests {
 
         public Task<EscrowStanding> GetStandingAsync(string orderNumber) =>
             throw new NotSupportedException();
+
+        public Task<StepResult> ReleaseHoldAsync(string orderNumber) =>
+            throw new NotSupportedException();
+
+        public Task<StepResult> RefundGoodsAsync(
+            string orderNumber, decimal amount, string reason, string idempotencyKey
+        ) => throw new NotSupportedException();
     }
 
     private static OrderDeliveredHandler NewHandler(OrderDbContext db, IEscrowClient escrow) =>
@@ -197,5 +204,28 @@ public class OrderDeliveredHandlerTests {
 
         var settlement = await db.ShippingSettlements.SingleAsync();
         Assert.Equal(delivered, settlement.DeliveredAt);
+    }
+
+    [Fact]
+    public async Task ADeliveryStartsTheReturnWindowAtTheTimeTheCourierReported() {
+        using var db = NewDbContext();
+        await SeedOrder(db, "ORD-S2-WINDOW");
+        var reported = new DateTime(2026, 10, 9, 8, 30, 0, DateTimeKind.Utc);
+
+        await NewHandler(db, new StubEscrow()).HandleAsync("ORD-S2-WINDOW", Driver, reported);
+
+        var order = await db.Orders.SingleAsync(o => o.OrderNumber == "ORD-S2-WINDOW");
+        Assert.Equal(reported, order.DeliveredAt);
+    }
+
+    [Fact]
+    public async Task ADeliveryReportedAfterARefundStartsNoReturnWindow() {
+        using var db = NewDbContext();
+        await SeedOrder(db, "ORD-S2-REFUNDED", DomainStatus.REFUNDED);
+
+        await NewHandler(db, new StubEscrow()).HandleAsync("ORD-S2-REFUNDED", Driver, DateTime.UtcNow);
+
+        var order = await db.Orders.SingleAsync(o => o.OrderNumber == "ORD-S2-REFUNDED");
+        Assert.Null(order.DeliveredAt);
     }
 }

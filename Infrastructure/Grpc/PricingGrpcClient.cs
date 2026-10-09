@@ -96,7 +96,9 @@ public class PricingGrpcClient(
                 [.. response.Items.Select(item => new PricedLine(
                     item.ProductId,
                     item.Quantity,
-                    string.IsNullOrWhiteSpace(item.AppliedFlashSale) ? null : item.AppliedFlashSale
+                    string.IsNullOrWhiteSpace(item.AppliedFlashSale) ? null : item.AppliedFlashSale,
+                    FromMoney(item.FinalUnitPrice),
+                    FromMoney(item.LineTotal)
                 ))],
                 string.IsNullOrWhiteSpace(response.AppliedVoucher) ? null : response.AppliedVoucher
             );

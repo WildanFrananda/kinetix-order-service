@@ -12,6 +12,7 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
     public DbSet<CheckoutSagaStep> CheckoutSagaSteps => Set<CheckoutSagaStep>();
     public DbSet<CompensationAttempt> CompensationAttempts => Set<CompensationAttempt>();
     public DbSet<ShippingSettlement> ShippingSettlements => Set<ShippingSettlement>();
+    public DbSet<EscrowRelease> EscrowReleases => Set<EscrowRelease>();
     public DbSet<OrderReturn> OrderReturns => Set<OrderReturn>();
     public DbSet<OrderReturnLine> OrderReturnLines => Set<OrderReturnLine>();
 
@@ -22,9 +23,19 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
             entity.HasIndex(e => new { e.SettledAt, e.NextAttemptAt });
         });
 
+        modelBuilder.Entity<EscrowRelease>(entity => {
+            entity.HasIndex(e => e.NextAttemptAt)
+                .HasDatabaseName("ix_escrow_releases_due")
+                .HasFilter("released_at IS NULL");
+        });
+
         modelBuilder.Entity<OrderReturn>(entity => {
             entity.HasIndex(e => e.OrderNumber).IsUnique();
             entity.HasIndex(e => new { e.MerchantPrincipalId, e.Status });
+
+            entity.HasIndex(e => e.NextRefundAttemptAt)
+                .HasDatabaseName("ix_order_returns_refund_due")
+                .HasFilter("status = 'GOODS_RECEIVED'");
 
             entity.Property(e => e.Status)
                 .HasConversion<string>()
@@ -47,6 +58,10 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
 
             entity.HasIndex(e => new { e.UpdatedAt, e.OrderNumber })
                 .HasDatabaseName("ix_orders_changed_since");
+
+            entity.HasIndex(e => e.DeliveredAt)
+                .HasDatabaseName("ix_orders_awaiting_completion")
+                .HasFilter("status = 'DELIVERED'");
 
             entity.Property(e => e.Status)
                 .HasConversion<string>()

@@ -58,6 +58,7 @@ public class OrderDeliveredHandler(
             or DomainStatus.SHIPPED
         ) {
             order.Status = DomainStatus.DELIVERED;
+            order.DeliveredAt = settlement.DeliveredAt;
             order.UpdatedAt = now;
         } else if (order.Status is not (DomainStatus.DELIVERED or DomainStatus.COMPLETED)) {
             _logger.LogWarning(

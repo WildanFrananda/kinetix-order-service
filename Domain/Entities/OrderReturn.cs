@@ -42,6 +42,26 @@ public class OrderReturn {
     [Column("resolved_at")]
     public DateTime? ResolvedAt { get; set; }
 
+    [Column("rejected_at")]
+    public DateTime? RejectedAt { get; set; }
+
+    [Column("rejection_reason")]
+    [MaxLength(500)]
+    public string? RejectionReason { get; set; }
+
+    [Column("refund_amount", TypeName = "decimal(18,2)")]
+    public decimal? RefundAmount { get; set; }
+
+    [Column("refund_attempts")]
+    public int RefundAttempts { get; set; }
+
+    [Column("last_refund_error")]
+    [MaxLength(500)]
+    public string? LastRefundError { get; set; }
+
+    [Column("next_refund_attempt_at")]
+    public DateTime? NextRefundAttemptAt { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
