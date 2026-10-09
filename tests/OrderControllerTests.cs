@@ -49,6 +49,24 @@ public class OrderControllerTests {
         body.GetType().GetProperty(property) is not null;
 
     [Fact]
+    public async Task AMerchantThatMayNotSellIs409() {
+        var refusal = await CheckoutRefusal(new MerchantMayNotSellException("merchant-1"));
+
+        Assert.Equal(StatusCodes.Status409Conflict, refusal.StatusCode);
+        Assert.Equal("MERCHANT_NOT_TRADING", Text(refusal.Value!, "error"));
+    }
+
+    [Fact]
+    public async Task IdentityNotSayingWhetherTheMerchantMaySellIs503() {
+        var refusal = await CheckoutRefusal(
+            new MerchantStandingUnknownException("merchant-1", new RpcException(new Status(StatusCode.Unavailable, "down")))
+        );
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, refusal.StatusCode);
+        Assert.Equal("IDENTITY_UNAVAILABLE", Text(refusal.Value!, "error"));
+    }
+
+    [Fact]
     public async Task MatchingBeingDownIs503() {
         var refusal = await CheckoutRefusal(
             new ShippingUnavailableException(new RpcException(new Status(StatusCode.Unavailable, "no route")))

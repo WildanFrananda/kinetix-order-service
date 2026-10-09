@@ -100,7 +100,8 @@ public class OrderServiceTests {
         IShippingClient shipping,
         IEscrowClient? escrowClient = null,
         IProductDirectory? catalog = null,
-        IVoucherQuotaClient? voucherClient = null
+        IVoucherQuotaClient? voucherClient = null,
+        IMerchantStanding? merchants = null
     ) {
         var voucher = new Mock<IVoucherQuotaClient>();
         voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
@@ -131,8 +132,15 @@ public class OrderServiceTests {
         );
 
         return new OrderApplicationService(db, cart, catalog ?? CatalogAnswering().Object,
-            pricing, shipping, runner, NullLogger<OrderApplicationService>.Instance
+            merchants ?? MerchantsThatMaySell().Object, pricing, shipping, runner,
+            NullLogger<OrderApplicationService>.Instance
         );
+    }
+
+    private static Mock<IMerchantStanding> MerchantsThatMaySell() {
+        var merchants = new Mock<IMerchantStanding>();
+        merchants.Setup(m => m.MaySellAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        return merchants;
     }
 
     private static OrderDbContext GetInMemoryDbContext() {
@@ -1130,6 +1138,49 @@ public class OrderServiceTests {
             c => c.RedeemVoucherAsync("SHOP10", result.OrderNumber, Customer, Merchant),
             Times.Once
         );
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_AMerchantIdentitySaysMayNotSell_IsRefusedBeforeAnythingIsPricedOrHeld() {
+        using var dbContext = GetInMemoryDbContext();
+        var pricing = PricingPassingShippingThrough();
+        var suspended = new Mock<IMerchantStanding>();
+        suspended.Setup(m => m.MaySellAsync(Merchant, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
+            ShippingReturning(RateCardFloor()).Object,
+            merchants: suspended.Object
+        );
+        var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_INSTANT", Buyer, BuyerPhone);
+
+        await Assert.ThrowsAsync<MerchantMayNotSellException>(
+            () => orderService.CheckoutAsync(Customer, request, "IDEMP-SUSPENDED")
+        );
+
+        Assert.Empty(dbContext.Orders);
+        pricing.Verify(p => p.CalculatePriceAsync(
+            It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), It.IsAny<string>()
+        ), Times.Never);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenIdentityCannotSayWhetherTheMerchantMaySell_RefusesRatherThanAssuming() {
+        using var dbContext = GetInMemoryDbContext();
+        var unknown = new Mock<IMerchantStanding>();
+        unknown.Setup(m => m.MaySellAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new MerchantStandingUnknownException(Merchant, new InvalidOperationException("identity is down")));
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object, PricingPassingShippingThrough().Object,
+            ShippingReturning(RateCardFloor()).Object,
+            merchants: unknown.Object
+        );
+        var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, "KINETIX_INSTANT", Buyer, BuyerPhone);
+
+        await Assert.ThrowsAsync<MerchantStandingUnknownException>(
+            () => orderService.CheckoutAsync(Customer, request, "IDEMP-IDENTITY-DOWN")
+        );
+
+        Assert.Empty(dbContext.Orders);
     }
 
     [Fact]

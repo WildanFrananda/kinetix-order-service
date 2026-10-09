@@ -226,6 +226,7 @@ builder.Services.AddGrpcClient<Identity.V1.IdentityService.IdentityServiceClient
   .AddInterceptor<GrpcDeadlineInterceptor>();
 
 builder.Services.AddScoped<IAddressDirectory, IdentityAddressDirectory>();
+builder.Services.AddScoped<IMerchantStanding, IdentityMerchantStanding>();
 
 builder.Services.AddGrpc(options => {
     options.Interceptors.Add<GrpcServerCallMetricsInterceptor>();

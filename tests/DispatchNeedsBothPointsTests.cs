@@ -62,6 +62,7 @@ public class DispatchNeedsBothPointsTests {
         var order = new OrderEntity {
             OrderNumber = "ORD-DISPATCH-1",
             CustomerPrincipalId = Customer,
+            MerchantPrincipalId = Merchant,
             Status = DomainStatus.PAID,
             ShippingAddress = "Jl. Cikini Raya No. 99",
             RecipientName = "Sarah",

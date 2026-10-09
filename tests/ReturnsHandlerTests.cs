@@ -27,6 +27,7 @@ public class ReturnsHandlerTests {
         db.Orders.Add(new OrderEntity {
             OrderNumber = OrderNumber,
             CustomerPrincipalId = Customer,
+            MerchantPrincipalId = Merchant,
             Status = DomainStatus.DELIVERED,
             ShippingAddress = "Jl. Cikini Raya No. 99",
             RecipientName = "Sarah",
@@ -51,6 +52,17 @@ public class ReturnsHandlerTests {
         var stored = Assert.Single(db.OrderReturns);
         Assert.Equal(OrderNumber, stored.OrderNumber);
         Assert.Equal("Wrong size delivered", stored.Reason);
+    }
+
+    [Fact]
+    public async Task AReturnCannotBeOpenedAgainstAnotherMerchantsOrder() {
+        using var db = NewDbContext();
+        await SeedOrder(db);
+
+        var outcome = await NewHandler(db).OpenAsync(OrderNumber, "77777777-7777-7777-7777-777777777777", "Not mine");
+
+        Assert.False(outcome.Success);
+        Assert.Empty(db.OrderReturns);
     }
 
     [Fact]
