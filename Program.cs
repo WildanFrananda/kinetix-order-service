@@ -262,6 +262,7 @@ builder.Services.AddScoped<IStockClient, StockGrpcClient>();
 builder.Services.AddScoped<IProductDirectory, CatalogProductDirectory>();
 builder.Services.AddScoped<IEscrowClient, EscrowGrpcClient>();
 builder.Services.AddScoped<IFulfillmentClient, FulfillmentGrpcClient>();
+builder.Services.AddScoped<ICourierDispatcher, CourierDispatcher>();
 builder.Services.AddScoped<IFulfillmentPackedHandler, FulfillmentPackedHandler>();
 builder.Services.AddScoped<IOrderDeliveredHandler, OrderDeliveredHandler>();
 builder.Services.AddScoped<IReturnsHandler, ReturnsHandler>();
@@ -280,6 +281,7 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 
 builder.Services.AddHostedService<StuckSagaSweeper>();
 builder.Services.AddHostedService<ShippingSettlementSweeper>();
+builder.Services.AddHostedService<CourierDispatchSweeper>();
 builder.Services.AddHostedService<OrderCompletionSweeper>();
 
 builder.Services.AddHttpContextAccessor();

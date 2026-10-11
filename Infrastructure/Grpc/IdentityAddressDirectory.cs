@@ -1,4 +1,5 @@
 using Grpc.Core;
+using Kinetix.OrderService.Application.Exceptions;
 using Kinetix.OrderService.Application.Ports;
 using IdentityProto = global::Identity.V1;
 
@@ -40,11 +41,7 @@ public class IdentityAddressDirectory(
 
             return new MapPoint(response.Location.Latitude, response.Location.Longitude);
         } catch (RpcException e) {
-            _logger.LogError(
-                e, "identity could not be asked where merchant {Principal} collects from",
-                merchantPrincipalId
-            );
-            return null;
+            throw new AddressUnknownException(merchantPrincipalId, e);
         }
     }
 
@@ -69,10 +66,7 @@ public class IdentityAddressDirectory(
 
             return new MapPoint(response.Location.Latitude, response.Location.Longitude);
         } catch (RpcException e) {
-            _logger.LogError(
-                e, "identity could not be asked where customer {Principal} lives", customerPrincipalId
-            );
-            return null;
+            throw new AddressUnknownException(customerPrincipalId, e);
         }
     }
 }

@@ -12,6 +12,7 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
     public DbSet<CheckoutSagaStep> CheckoutSagaSteps => Set<CheckoutSagaStep>();
     public DbSet<CompensationAttempt> CompensationAttempts => Set<CompensationAttempt>();
     public DbSet<ShippingSettlement> ShippingSettlements => Set<ShippingSettlement>();
+    public DbSet<CourierDispatch> CourierDispatches => Set<CourierDispatch>();
     public DbSet<EscrowRelease> EscrowReleases => Set<EscrowRelease>();
     public DbSet<OrderReturn> OrderReturns => Set<OrderReturn>();
     public DbSet<OrderReturnLine> OrderReturnLines => Set<OrderReturnLine>();

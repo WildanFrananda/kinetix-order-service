@@ -1,10 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Grpc.Core;
-using Common.V1;
-using CommonProto = global::Common.V1;
-using Fleet.V1;
-using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Domain.Entities;
 using DomainStatus = Kinetix.OrderService.Domain.Enums.OrderStatus;
 using Kinetix.OrderService.Infrastructure.Persistence;
 
@@ -12,16 +8,10 @@ namespace Kinetix.OrderService.Application.Fulfillment;
 
 public class FulfillmentPackedHandler(
     OrderDbContext dbContext,
-    CourierTelemetryService.CourierTelemetryServiceClient courierClient,
-    IAddressDirectory addresses,
-    IFulfillmentClient fulfillment,
-    ILogger<FulfillmentPackedHandler> logger
+    ICourierDispatcher dispatcher
 ) : IFulfillmentPackedHandler {
     private readonly OrderDbContext _dbContext = dbContext;
-    private readonly CourierTelemetryService.CourierTelemetryServiceClient _courierClient = courierClient;
-    private readonly IAddressDirectory _addresses = addresses;
-    private readonly IFulfillmentClient _fulfillment = fulfillment;
-    private readonly ILogger<FulfillmentPackedHandler> _logger = logger;
+    private readonly ICourierDispatcher _dispatcher = dispatcher;
 
     public async Task<FulfillmentPackedOutcome> HandleAsync(
         string merchantPrincipalId,
@@ -50,106 +40,33 @@ public class FulfillmentPackedHandler(
             );
         }
 
-        order.Status = DomainStatus.PROCESSING_FULFILLMENT;
-        order.UpdatedAt = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+
+        if (order.Status is DomainStatus.PAID) {
+            order.Status = DomainStatus.PROCESSING_FULFILLMENT;
+            order.UpdatedAt = now;
+        }
+
+        var dispatch = await _dbContext.CourierDispatches.FirstOrDefaultAsync(d => d.OrderNumber == orderNumber);
+        if (dispatch is null) {
+            dispatch = new CourierDispatch {
+                OrderNumber = orderNumber,
+                MerchantPrincipalId = merchantPrincipalId,
+                FulfillmentTaskId = fulfillmentTaskId,
+                NextAttemptAt = now,
+                CreatedAt = now,
+                UpdatedAt = now,
+            };
+            _dbContext.CourierDispatches.Add(dispatch);
+        }
+
         await _dbContext.SaveChangesAsync();
 
-        var dispatchRef = await DispatchCourier(order, merchantPrincipalId, fulfillmentTaskId);
-
-        return new FulfillmentPackedOutcome(true, false, dispatchRef, null);
-    }
-
-    private async Task<string> DispatchCourier(
-        Domain.Entities.Order order,
-        string merchantPrincipalId,
-        string fulfillmentTaskId
-    ) {
-        var pickup = await _addresses.PickupPointAsync(merchantPrincipalId);
-        var delivery = await _addresses.DeliveryPointAsync(order.CustomerPrincipalId);
-
-        if (pickup is null || delivery is null) {
-            _logger.LogError(
-                "{Order} is packed (warehouse task {Task}) and no courier was dispatched: "
-              + "{Missing} has no point. Identity geocodes an address when it is saved, so this "
-              + "means the address was never placed.",
-                order.OrderNumber, fulfillmentTaskId,
-                pickup is null && delivery is null ? "neither end"
-                    : pickup is null ? "the merchant's store" : "the delivery address"
-            );
-
-            return string.Empty;
+        if (dispatch.NextAttemptAt is not null) {
+            await _dispatcher.AttemptAsync(dispatch, order);
+            await _dbContext.SaveChangesAsync();
         }
 
-        try {
-            var response = await _courierClient.DispatchCourierAsync(new DispatchCourierRequest {
-                MerchantPrincipalId = merchantPrincipalId,
-                OrderId = order.Id.ToString(),
-                OrderNumber = order.OrderNumber,
-                PickupPoint = new CommonProto.GeoPoint {
-                    Latitude = pickup.Latitude,
-                    Longitude = pickup.Longitude,
-                },
-                DeliveryPoint = new CommonProto.GeoPoint {
-                    Latitude = delivery.Latitude,
-                    Longitude = delivery.Longitude,
-                },
-            });
-
-            if (!response.Success) {
-                _logger.LogError(
-                    "{Order} is packed (warehouse task {Task}) and no courier was assigned: {Reason}",
-                    order.OrderNumber, fulfillmentTaskId, response.Error?.Message ?? "no reason given"
-                );
-                return string.Empty;
-            }
-
-            await TellTheWarehouseTheAwb(
-                merchantPrincipalId, fulfillmentTaskId, order.OrderNumber, response.AwbNumber
-            );
-
-            return response.DispatchRef;
-        } catch (RpcException e) {
-            _logger.LogError(
-                e, "{Order} is packed (warehouse task {Task}) but the fleet could not be reached",
-                order.OrderNumber, fulfillmentTaskId
-            );
-            return string.Empty;
-        }
-    }
-
-    private async Task TellTheWarehouseTheAwb(
-        string merchantPrincipalId,
-        string fulfillmentTaskId,
-        string orderNumber,
-        string awbNumber
-    ) {
-        if (string.IsNullOrWhiteSpace(awbNumber)) {
-            _logger.LogError(
-                "{Order} was dispatched and the fleet issued no tracking number, so the warehouse "
-              + "has nothing to print and the customer has nothing to follow",
-                orderNumber
-            );
-            return;
-        }
-
-        try {
-            var recorded = await _fulfillment.RecordCourierAwbAsync(
-                merchantPrincipalId, fulfillmentTaskId, orderNumber, awbNumber
-            );
-
-            if (!recorded.Success) {
-                _logger.LogError(
-                    "{Order} was dispatched with tracking number {Awb} and the warehouse refused "
-                  + "it: {Reason}. The courier is still assigned",
-                    orderNumber, awbNumber, recorded.Detail ?? "no reason given"
-                );
-            }
-        } catch (RpcException e) {
-            _logger.LogError(
-                e, "{Order} was dispatched with tracking number {Awb} and the warehouse could not "
-                 + "be told. The courier is still assigned",
-                orderNumber, awbNumber
-            );
-        }
+        return new FulfillmentPackedOutcome(true, false, dispatch.DispatchRef ?? string.Empty, null);
     }
 }
