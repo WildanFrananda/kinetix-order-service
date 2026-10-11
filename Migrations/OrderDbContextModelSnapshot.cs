@@ -219,6 +219,68 @@ namespace Kinetix.OrderService.Migrations {
                 b.ToTable("checkout_saga_compensation_attempts");
             });
 
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.CourierDispatch", b => {
+                b.Property<string>("OrderNumber")
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("order_number");
+
+                b.Property<int>("Attempts")
+                    .HasColumnType("integer")
+                    .HasColumnName("attempts");
+
+                b.Property<string>("AwbNumber")
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("awb_number");
+
+                b.Property<DateTime?>("AwbRecordedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("awb_recorded_at");
+
+                b.Property<DateTime>("CreatedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("created_at");
+
+                b.Property<string>("DispatchRef")
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("dispatch_ref");
+
+                b.Property<DateTime?>("DispatchedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("dispatched_at");
+
+                b.Property<string>("FulfillmentTaskId")
+                    .IsRequired()
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("fulfillment_task_id");
+
+                b.Property<string>("LastError")
+                    .HasMaxLength(500)
+                    .HasColumnType("character varying(500)")
+                    .HasColumnName("last_error");
+
+                b.Property<string>("MerchantPrincipalId")
+                    .IsRequired()
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("merchant_principal_id");
+
+                b.Property<DateTime?>("NextAttemptAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("next_attempt_at");
+
+                b.Property<DateTime>("UpdatedAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("updated_at");
+
+                b.HasKey("OrderNumber");
+
+                b.ToTable("courier_dispatches");
+            });
+
             modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.EscrowRelease", b => {
                 b.Property<string>("OrderNumber")
                     .HasMaxLength(64)

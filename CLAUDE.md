@@ -11,6 +11,25 @@ from the cart. A line pricing did not price, a quantity it priced differently, o
 up to its subtotal refuse the checkout. Returns are refunded from these amounts, so they must be what
 was paid.
 
+## A packed order is owed a courier
+
+When warehouse reports an order packed, order records a row in `courier_dispatches` before it asks
+anyone anything, then tries once: the store's and the buyer's points from identity, `DispatchCourier` to
+matching, and the tracking number to warehouse. Whatever does not go through is retried by
+`CourierDispatchSweeper`, backing off a minute per attempt up to an hour, the same shape as
+`shipping_settlements`. Until 2026-10-11 a failed dispatch was a log line and nothing else: the order sat
+in `PROCESSING_FULFILLMENT` with no courier for good, and when identity could not be asked the log said
+the address had never been placed.
+
+Retrying is safe because matching books one job per order number and answers a repeat with the same
+dispatch and tracking number. `NO_DRIVER_AVAILABLE` is retried too — matching assigns the job itself when
+a courier comes online, and the retry is how order learns the tracking number to give warehouse. A
+dispatch that went through but whose tracking number warehouse could not be told retries only the
+warehouse. The retry stops, waiting for a person, when matching says the job is already finished or
+warehouse refuses the number; it stops quietly when the order is no longer `PROCESSING_FULFILLMENT`.
+`IAddressDirectory` throws `AddressUnknownException` when identity cannot be asked, so "unknown" and "no
+point on the map" stay two answers.
+
 ## When the merchant is paid
 
 The escrow is released by order, never by a timer in payment. An order becomes `COMPLETED` once it is

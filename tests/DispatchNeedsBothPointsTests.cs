@@ -97,8 +97,9 @@ public class DispatchNeedsBothPointsTests {
     private static FulfillmentPackedHandler NewHandler(
         OrderDbContext db, RecordingCourier courier, IAddressDirectory directory,
         IFulfillmentClient? warehouse = null
-    ) => new(db, courier, directory, warehouse ?? new RecordingWarehouse(),
-             NullLogger<FulfillmentPackedHandler>.Instance);
+    ) => new(db, new CourierDispatcher(
+        courier, directory, warehouse ?? new RecordingWarehouse(), NullLogger<CourierDispatcher>.Instance
+    ));
 
     [Fact]
     public async Task TheTrackingNumberTheFleetIssuedReachesTheWarehouse() {

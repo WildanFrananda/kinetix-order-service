@@ -76,7 +76,9 @@ public class FulfillmentPackedGuardTests {
     }
 
     private static FulfillmentPackedHandler Handler(OrderDbContext db, CountingCourier courier) =>
-        new(db, courier, new Everywhere(), new SilentWarehouse(), NullLogger<FulfillmentPackedHandler>.Instance);
+        new(db, new CourierDispatcher(
+            courier, new Everywhere(), new SilentWarehouse(), NullLogger<CourierDispatcher>.Instance
+        ));
 
     [Theory]
     [InlineData(DomainStatus.CANCELLED)]
