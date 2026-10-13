@@ -53,9 +53,10 @@ public class DispatchNeedsBothPointsTests {
     }
 
     private static OrderDbContext NewDbContext() =>
-        new(new DbContextOptionsBuilder<OrderDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options
+        new(
+            new DbContextOptionsBuilder<OrderDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options
         );
 
     private static async Task<OrderEntity> SeedOrder(OrderDbContext db) {
@@ -79,14 +80,19 @@ public class DispatchNeedsBothPointsTests {
         public int AwbCalls { get; private set; }
 
         public Task<FulfillmentCreated> CreateTaskAsync(
-            string merchantPrincipalId, string orderNumber, IReadOnlyList<FulfillmentLine> lines
+            string merchantPrincipalId,
+            string orderNumber,
+            IReadOnlyList<FulfillmentLine> lines
         ) => throw new NotSupportedException("not used by these tests");
 
         public Task<StepResult> CancelTaskAsync(string merchantPrincipalId, string fulfillmentTaskId)
             => throw new NotSupportedException("not used by these tests");
 
         public Task<StepResult> RecordCourierAwbAsync(
-            string merchantPrincipalId, string fulfillmentTaskId, string orderNumber, string awbNumber
+            string merchantPrincipalId,
+            string fulfillmentTaskId,
+            string orderNumber,
+            string awbNumber
         ) {
             AwbCalls += 1;
             LastAwb = awbNumber;
@@ -95,11 +101,19 @@ public class DispatchNeedsBothPointsTests {
     }
 
     private static FulfillmentPackedHandler NewHandler(
-        OrderDbContext db, RecordingCourier courier, IAddressDirectory directory,
+        OrderDbContext db,
+        RecordingCourier courier,
+        IAddressDirectory directory,
         IFulfillmentClient? warehouse = null
-    ) => new(db, new CourierDispatcher(
-        courier, directory, warehouse ?? new RecordingWarehouse(), NullLogger<CourierDispatcher>.Instance
-    ));
+    ) => new(
+        db,
+        new CourierDispatcher(
+            courier,
+            directory,
+            warehouse ?? new RecordingWarehouse(),
+            NullLogger<CourierDispatcher>.Instance
+        )
+    );
 
     [Fact]
     public async Task TheTrackingNumberTheFleetIssuedReachesTheWarehouse() {

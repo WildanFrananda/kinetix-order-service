@@ -25,7 +25,11 @@ public class FulfillmentPackedHandler(
 
         if (!string.Equals(order.MerchantPrincipalId, merchantPrincipalId, StringComparison.Ordinal)) {
             return new FulfillmentPackedOutcome(
-                false, false, string.Empty, "that order is not that merchant's", "NOT_THIS_MERCHANTS_ORDER"
+                false,
+                false,
+                string.Empty,
+                "that order is not that merchant's",
+                "NOT_THIS_MERCHANTS_ORDER"
             );
         }
 
@@ -35,7 +39,10 @@ public class FulfillmentPackedHandler(
 
         if (order.Status is not (DomainStatus.PAID or DomainStatus.PROCESSING_FULFILLMENT)) {
             return new FulfillmentPackedOutcome(
-                false, false, string.Empty, $"the order is {order.Status}, so there is nothing to send",
+                false,
+                false,
+                string.Empty,
+                $"the order is {order.Status}, so there is nothing to send",
                 "ORDER_NOT_AWAITING_FULFILMENT"
             );
         }
@@ -57,6 +64,7 @@ public class FulfillmentPackedHandler(
                 CreatedAt = now,
                 UpdatedAt = now,
             };
+
             _dbContext.CourierDispatches.Add(dispatch);
         }
 

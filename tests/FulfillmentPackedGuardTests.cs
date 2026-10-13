@@ -46,22 +46,29 @@ public class FulfillmentPackedGuardTests {
 
     private sealed class SilentWarehouse : IFulfillmentClient {
         public Task<FulfillmentCreated> CreateTaskAsync(
-            string merchantPrincipalId, string orderNumber, IReadOnlyList<FulfillmentLine> lines
+            string merchantPrincipalId,
+            string orderNumber,
+            IReadOnlyList<FulfillmentLine> lines
         ) => throw new NotSupportedException("not used by these tests");
 
         public Task<StepResult> CancelTaskAsync(string merchantPrincipalId, string fulfillmentTaskId) =>
             throw new NotSupportedException("not used by these tests");
 
         public Task<StepResult> RecordCourierAwbAsync(
-            string merchantPrincipalId, string fulfillmentTaskId, string orderNumber, string awbNumber
+            string merchantPrincipalId,
+            string fulfillmentTaskId,
+            string orderNumber,
+            string awbNumber
         ) => Task.FromResult(StepResult.Ok());
     }
 
     private static async Task<OrderDbContext> WithOrder(DomainStatus status) {
-        var db = new OrderDbContext(new DbContextOptionsBuilder<OrderDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options
+        var db = new OrderDbContext(
+            new DbContextOptionsBuilder<OrderDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options
         );
+
         db.Orders.Add(new OrderEntity {
             OrderNumber = OrderNumber,
             CustomerPrincipalId = "22222222-2222-2222-2222-222222222222",
@@ -71,14 +78,21 @@ public class FulfillmentPackedGuardTests {
             RecipientName = "Sarah",
             RecipientPhone = "0812",
         });
+
         await db.SaveChangesAsync();
         return db;
     }
 
     private static FulfillmentPackedHandler Handler(OrderDbContext db, CountingCourier courier) =>
-        new(db, new CourierDispatcher(
-            courier, new Everywhere(), new SilentWarehouse(), NullLogger<CourierDispatcher>.Instance
-        ));
+        new(
+            db,
+            new CourierDispatcher(
+                courier,
+                new Everywhere(),
+                new SilentWarehouse(),
+                NullLogger<CourierDispatcher>.Instance
+            )
+        );
 
     [Theory]
     [InlineData(DomainStatus.CANCELLED)]

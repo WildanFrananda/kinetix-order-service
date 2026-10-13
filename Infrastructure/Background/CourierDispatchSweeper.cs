@@ -29,7 +29,8 @@ public class CourierDispatchSweeper(
                 await SweepAsync(stoppingToken);
             } catch (Exception e) when (e is not OperationCanceledException) {
                 _logger.LogError(
-                    e, "a dispatch sweep failed; the next one will pick up the same rows"
+                    e,
+                    "a dispatch sweep failed; the next one will pick up the same rows"
                 );
             }
 
@@ -66,7 +67,8 @@ public class CourierDispatchSweeper(
             }
 
             var order = await dbContext.Orders.FirstOrDefaultAsync(
-                o => o.OrderNumber == dispatch.OrderNumber, stoppingToken
+                o => o.OrderNumber == dispatch.OrderNumber,
+                stoppingToken
             );
 
             if (order is null) {

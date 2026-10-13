@@ -73,3 +73,10 @@ recording them. Paying the merchant instead of refunding the buyer is a judgemen
 it. A return whose goods came back cannot be rejected — the buyer is owed. Staff see what is stuck at
 `GET /api/v1/orders/returns/needs-attention`: returns still `OPEN`, and returns whose refund payment
 refused.
+
+## GetOrderDetails names the parties
+
+`merchant_principal_id` is the order's merchant and `driver_principal_id` the courier recorded in
+`shipping_settlements` when matching reported the delivery — empty until then. review rates exactly these
+two, so a buyer cannot choose whom a review or a rating is about. Both fields also reach the HTTP order
+response. `ListOrdersForPrincipal` fills them the same way, looking the couriers up in one query per page.
