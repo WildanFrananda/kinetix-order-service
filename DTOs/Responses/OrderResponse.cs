@@ -4,6 +4,8 @@ public record OrderResponse(
     Guid Id,
     string OrderNumber,
     string CustomerPrincipalId,
+    string MerchantPrincipalId,
+    string? DriverPrincipalId,
     string Status,
     decimal Subtotal,
     decimal DiscountAmount,

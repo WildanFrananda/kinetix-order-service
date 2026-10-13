@@ -20,6 +20,8 @@ public class OrderReadAccessTests {
         OrderId,
         "ORD-20261009-0001",
         customerPrincipalId,
+        "3aa957c8-b802-4d58-b9fc-f7b76ce60fa3",
+        null,
         "PAID",
         150000m,
         0m,

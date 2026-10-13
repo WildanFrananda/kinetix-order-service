@@ -2,6 +2,7 @@ using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Common.V1;
 using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.DTOs.Responses;
 using OrderProto = global::Order.V1;
 
 namespace Kinetix.OrderService.Infrastructure.Grpc;
@@ -21,7 +22,10 @@ public class OrderGrpcServerService(
     private const int ChangeFeedDefaultLimit = 100;
     private const int ChangeFeedMaxLimit = 500;
 
-    public override async Task<OrderProto.GetOrderDetailsResponse> GetOrderDetails(OrderProto.GetOrderDetailsRequest request, ServerCallContext context) {
+    public override async Task<OrderProto.GetOrderDetailsResponse> GetOrderDetails(
+        OrderProto.GetOrderDetailsRequest request,
+        ServerCallContext context
+    ) {
         if (!Guid.TryParse(request.OrderId, out var orderGuid)) {
             return new OrderProto.GetOrderDetailsResponse { Found = false };
         }
@@ -31,39 +35,20 @@ public class OrderGrpcServerService(
             return new OrderProto.GetOrderDetailsResponse { Found = false };
         }
 
-        var response = new OrderProto.GetOrderDetailsResponse {
-            Found = true,
-            OrderId = order.Id.ToString(),
-            OrderNumber = order.OrderNumber,
-            CustomerPrincipalId = order.CustomerPrincipalId ?? string.Empty,
-            Status = MapStatus(order.Status),
-            Subtotal = ToMoney(order.Subtotal),
-            DiscountAmount = ToMoney(order.DiscountAmount),
-            ShippingFee = ToMoney(order.FinalShippingFee),
-            FinalTotal = ToMoney(order.FinalTotal)
-        };
-
-        foreach (var item in order.Items) {
-            response.Lines.Add(new OrderProto.OrderLine {
-                ProductId = item.ProductId,
-                ProductTitle = item.ProductTitle,
-                UnitPrice = ToMoney(item.UnitPrice),
-                Quantity = item.Quantity,
-                LineSubtotal = ToMoney(item.LineSubtotal)
-            });
-        }
-
-        return response;
+        return ToDetails(order);
     }
 
     public override async Task<OrderProto.ListOrdersForPrincipalResponse> ListOrdersForPrincipal(
-        OrderProto.ListOrdersForPrincipalRequest request, ServerCallContext context
+        OrderProto.ListOrdersForPrincipalRequest request,
+        ServerCallContext context
     ) {
-
         if (string.IsNullOrWhiteSpace(request.PrincipalId)) {
-            throw new RpcException(new Status(
-                StatusCode.InvalidArgument, "a principal id is required"
-            ));
+            throw new RpcException(
+                new Status(
+                    StatusCode.InvalidArgument,
+                    "a principal id is required"
+                )
+            );
         }
 
         var page = request.Page > 0 ? request.Page : 1;
@@ -76,7 +61,10 @@ public class OrderGrpcServerService(
         }
 
         var result = await _orderService.GetCustomerOrdersAsync(
-            request.PrincipalId, requestedStatus, page, pageSize
+            request.PrincipalId,
+            requestedStatus,
+            page,
+            pageSize
         );
 
         var response = new OrderProto.ListOrdersForPrincipalResponse {
@@ -84,32 +72,38 @@ public class OrderGrpcServerService(
         };
 
         foreach (var order in result.Orders) {
-            var details = new OrderProto.GetOrderDetailsResponse {
-                Found = true,
-                OrderId = order.Id.ToString(),
-                OrderNumber = order.OrderNumber,
-                CustomerPrincipalId = order.CustomerPrincipalId ?? string.Empty,
-                Status = MapStatus(order.Status),
-                Subtotal = ToMoney(order.Subtotal),
-                DiscountAmount = ToMoney(order.DiscountAmount),
-                ShippingFee = ToMoney(order.FinalShippingFee),
-                FinalTotal = ToMoney(order.FinalTotal)
-            };
-
-            foreach (var item in order.Items) {
-                details.Lines.Add(new OrderProto.OrderLine {
-                    ProductId = item.ProductId,
-                    ProductTitle = item.ProductTitle,
-                    UnitPrice = ToMoney(item.UnitPrice),
-                    Quantity = item.Quantity,
-                    LineSubtotal = ToMoney(item.LineSubtotal)
-                });
-            }
-
-            response.Orders.Add(details);
+            response.Orders.Add(ToDetails(order));
         }
 
         return response;
+    }
+
+    private static OrderProto.GetOrderDetailsResponse ToDetails(OrderResponse order) {
+        var details = new OrderProto.GetOrderDetailsResponse {
+            Found = true,
+            OrderId = order.Id.ToString(),
+            OrderNumber = order.OrderNumber,
+            CustomerPrincipalId = order.CustomerPrincipalId ?? string.Empty,
+            MerchantPrincipalId = order.MerchantPrincipalId ?? string.Empty,
+            DriverPrincipalId = order.DriverPrincipalId ?? string.Empty,
+            Status = MapStatus(order.Status),
+            Subtotal = ToMoney(order.Subtotal),
+            DiscountAmount = ToMoney(order.DiscountAmount),
+            ShippingFee = ToMoney(order.FinalShippingFee),
+            FinalTotal = ToMoney(order.FinalTotal)
+        };
+
+        foreach (var item in order.Items) {
+            details.Lines.Add(new OrderProto.OrderLine {
+                ProductId = item.ProductId,
+                ProductTitle = item.ProductTitle,
+                UnitPrice = ToMoney(item.UnitPrice),
+                Quantity = item.Quantity,
+                LineSubtotal = ToMoney(item.LineSubtotal)
+            });
+        }
+
+        return details;
     }
 
     private static Domain.Enums.OrderStatus? MapRequestedStatus(OrderStatus status) => status switch {
@@ -132,7 +126,8 @@ public class OrderGrpcServerService(
     }
 
     public override async Task<OrderProto.FulfillmentPackedResponse> FulfillmentPacked(
-        OrderProto.FulfillmentPackedRequest request, ServerCallContext context
+        OrderProto.FulfillmentPackedRequest request,
+        ServerCallContext context
     ) {
         if (string.IsNullOrWhiteSpace(request.OrderNumber)) {
             return new OrderProto.FulfillmentPackedResponse {
@@ -145,7 +140,9 @@ public class OrderGrpcServerService(
         }
 
         var outcome = await _fulfillmentPacked.HandleAsync(
-            request.MerchantPrincipalId, request.OrderNumber, request.FulfillmentTaskId
+            request.MerchantPrincipalId,
+            request.OrderNumber,
+            request.FulfillmentTaskId
         );
 
         if (!outcome.Found) {
@@ -166,7 +163,8 @@ public class OrderGrpcServerService(
     }
 
     public override async Task<OrderProto.OrderDeliveredResponse> OrderDelivered(
-        OrderProto.OrderDeliveredRequest request, ServerCallContext context
+        OrderProto.OrderDeliveredRequest request,
+        ServerCallContext context
     ) {
         if (string.IsNullOrWhiteSpace(request.OrderNumber)) {
             return new OrderProto.OrderDeliveredResponse {
@@ -197,7 +195,9 @@ public class OrderGrpcServerService(
         ) ? parsed : DateTime.UtcNow;
 
         var outcome = await _orderDelivered.HandleAsync(
-            request.OrderNumber, request.DriverPrincipalId, deliveredAt
+            request.OrderNumber,
+            request.DriverPrincipalId,
+            deliveredAt
         );
 
         if (!outcome.Accepted) {
@@ -217,16 +217,22 @@ public class OrderGrpcServerService(
     }
 
     public override async Task<OrderProto.OpenReturnResponse> OpenReturn(
-        OrderProto.OpenReturnRequest request, ServerCallContext context
+        OrderProto.OpenReturnRequest request,
+        ServerCallContext context
     ) {
         var outcome = await _returns.OpenAsync(
-            request.OrderNumber, request.MerchantPrincipalId, request.Reason
+            request.OrderNumber,
+            request.MerchantPrincipalId,
+            request.Reason
         );
 
         if (!outcome.Success) {
             return new OrderProto.OpenReturnResponse {
                 Success = false,
-                Error = new ErrorDetail { ErrorCode = "RETURN_REFUSED", Message = outcome.Fault ?? "refused" }
+                Error = new ErrorDetail {
+                    ErrorCode = "RETURN_REFUSED",
+                    Message = outcome.Fault ?? "refused"
+                }
             };
         }
 
@@ -239,7 +245,8 @@ public class OrderGrpcServerService(
     }
 
     public override async Task<OrderProto.ReturnGoodsReceivedResponse> ReturnGoodsReceived(
-        OrderProto.ReturnGoodsReceivedRequest request, ServerCallContext context
+        OrderProto.ReturnGoodsReceivedRequest request,
+        ServerCallContext context
     ) {
         var lines = request.Lines
             .Select(line => new ReturnedLine(line.Sku, line.Quantity))
@@ -254,7 +261,11 @@ public class OrderGrpcServerService(
         ) ? parsed : default;
 
         var outcome = await _returns.GoodsReceivedAsync(
-            request.ReturnNumber, request.MerchantPrincipalId, lines, request.BinCode, receivedAt
+            request.ReturnNumber,
+            request.MerchantPrincipalId,
+            lines,
+            request.BinCode,
+            receivedAt
         );
 
         if (!outcome.Accepted) {
@@ -275,7 +286,8 @@ public class OrderGrpcServerService(
     }
 
     public override async Task<OrderProto.OrdersChangedSinceResponse> OrdersChangedSince(
-        OrderProto.OrdersChangedSinceRequest request, ServerCallContext context
+        OrderProto.OrdersChangedSinceRequest request,
+        ServerCallContext context
     ) {
         int limit = request.Limit switch {
             <= 0 => ChangeFeedDefaultLimit,
@@ -287,7 +299,9 @@ public class OrderGrpcServerService(
         string lastOrderNumber = request.Cursor?.LastOrderNumber ?? string.Empty;
 
         var page = await _orderService.OrdersChangedSinceAsync(
-            updatedThrough, lastOrderNumber, limit
+            updatedThrough,
+            lastOrderNumber,
+            limit
         );
 
         var response = new OrderProto.OrdersChangedSinceResponse { HasMore = page.HasMore };

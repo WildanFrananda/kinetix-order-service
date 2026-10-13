@@ -33,7 +33,11 @@ public class OrderService(
     private readonly CheckoutSagaRunner _sagaRunner = sagaRunner;
     private readonly ILogger<OrderService> _logger = logger;
 
-    public async Task<OrderResponse> CheckoutAsync(string customerPrincipalId, CheckoutRequest request, string? idempotencyKey) {
+    public async Task<OrderResponse> CheckoutAsync(
+        string customerPrincipalId,
+        CheckoutRequest request,
+        string? idempotencyKey
+    ) {
         RequireRecipient(request);
         if (!string.IsNullOrEmpty(idempotencyKey)) {
             var existingOrder = await _dbContext.Orders
@@ -44,7 +48,7 @@ public class OrderService(
                 );
 
             if (existingOrder != null) {
-                return MapToOrderResponse(existingOrder);
+                return MapToOrderResponse(existingOrder, await DriverOfAsync(existingOrder.OrderNumber));
             }
         }
 
@@ -91,11 +95,14 @@ public class OrderService(
                 "pricing returned a final shipping fee of {PricingFinal} against a base of "
               + "{PricingBase}, which is not a discount of its own quote. Refusing before an "
               + "order row exists rather than debiting it.",
-                priceResult.FinalShippingFee, priceResult.BaseShippingFee
+                priceResult.FinalShippingFee,
+                priceResult.BaseShippingFee
             );
 
             throw new ShippingFeeContradictedException(
-                baseShippingFee, priceResult.BaseShippingFee, priceResult.FinalShippingFee
+                baseShippingFee,
+                priceResult.BaseShippingFee,
+                priceResult.FinalShippingFee
             );
         }
 
@@ -150,9 +157,10 @@ public class OrderService(
             Reservations: [.. cart.Items.Select(item =>
                 new SagaReservation(item.MerchantPrincipalId ?? string.Empty, item.ProductId, item.Quantity)
             )],
-            FlashSaleClaims: [.. priceResult.Lines
-                .Where(l => l.AppliedFlashSaleId is not null)
-                .Select(l => new FlashSaleClaim(l.AppliedFlashSaleId!, l.ProductId, l.Quantity))
+            FlashSaleClaims: [
+                .. priceResult.Lines
+                    .Where(l => l.AppliedFlashSaleId is not null)
+                    .Select(l => new FlashSaleClaim(l.AppliedFlashSaleId!, l.ProductId, l.Quantity))
             ],
             MerchantPrincipalId: merchantPrincipalId,
             TotalOrderAmount: priceResult.FinalTotal,
@@ -182,7 +190,7 @@ public class OrderService(
 
         await _cartService.ClearCartAsync(customerPrincipalId);
 
-        return MapToOrderResponse(order);
+        return MapToOrderResponse(order, null);
     }
 
     private static void RequireRecipient(CheckoutRequest request) {
@@ -315,13 +323,14 @@ public class OrderService(
 
         }
 
-        faults.AddRange(options
-            .GroupBy(o => o.ServiceTier, StringComparer.Ordinal)
-            .Where(tier => tier.Count() > 1)
-            .Select(tier =>
-                $"'{tier.Key}' is listed {tier.Count()} times, so which of those entries describes "
-              + "the journey cannot be told"
-            )
+        faults.AddRange(
+            options
+                .GroupBy(o => o.ServiceTier, StringComparer.Ordinal)
+                .Where(tier => tier.Count() > 1)
+                .Select(tier =>
+                    $"'{tier.Key}' is listed {tier.Count()} times, so which of those entries describes "
+                  + "the journey cannot be told"
+                )
         );
 
         if (options.Count > 0 && options.All(o => !o.IsAvailable)) {
@@ -347,8 +356,11 @@ public class OrderService(
                 "{Tier} was priced at {Fee} against {DistanceKm}km, not the "
               + "{ExpectedDistanceKm}km the rate-card probe asks at, so this order's fee is not a "
               + "tier floor and its row is stamped {Basis}",
-                option.ServiceTier, quoted.BaseShippingFee, option.DistanceKm,
-                ShippingRateCardProbe.ExpectedDistanceKm, basis
+                option.ServiceTier,
+                quoted.BaseShippingFee,
+                option.DistanceKm,
+                ShippingRateCardProbe.ExpectedDistanceKm,
+                basis
             );
         }
 
@@ -379,7 +391,8 @@ public class OrderService(
                 "matching measured {DistanceKm}km between the two identical points this quote was "
               + "asked at, where the rate-card probe expects {ExpectedDistanceKm}; matching is no "
               + "longer answering the question order thinks it is asking",
-                quote.DistanceKm, ShippingRateCardProbe.ExpectedDistanceKm
+                quote.DistanceKm,
+                ShippingRateCardProbe.ExpectedDistanceKm
             );
         }
 
@@ -430,11 +443,14 @@ public class OrderService(
                   + "for none of them ({Tiers}), so this checkout is refused rather than shipped "
                   + "at a fee nobody quoted. An unpriced tier is one nobody may be charged for, "
                   + "not one that is free",
-                    available.Count, string.Join(", ", availableTiers)
+                    available.Count,
+                    string.Join(", ", availableTiers)
                 );
 
                 throw new ShippingTierNotEstablishedException(
-                    "any", "pricing holds no rate for it", availableTiers
+                    "any",
+                    "pricing holds no rate for it",
+                    availableTiers
                 );
             }
 
@@ -453,13 +469,17 @@ public class OrderService(
 
         if (!match.IsAvailable) {
             throw new ShippingTierNotEstablishedException(
-                requestedTier, match.UnavailableReason, availableTiers
+                requestedTier,
+                match.UnavailableReason,
+                availableTiers
             );
         }
 
         if (!priced.TryGetValue(requestedTier, out var quotedTier)) {
             throw new ShippingTierNotEstablishedException(
-                requestedTier, "pricing holds no rate for it", availableTiers
+                requestedTier,
+                "pricing holds no rate for it",
+                availableTiers
             );
         }
 
@@ -471,10 +491,19 @@ public class OrderService(
             .Include(o => o.Items)
             .FirstOrDefaultAsync(o => o.Id == orderId);
 
-        return order == null ? null : MapToOrderResponse(order);
+        if (order == null) {
+            return null;
+        }
+
+        return MapToOrderResponse(order, await DriverOfAsync(order.OrderNumber));
     }
 
-    public async Task<CustomerOrderPage> GetCustomerOrdersAsync(string customerPrincipalId, OrderStatus? status, int page, int pageSize) {
+    public async Task<CustomerOrderPage> GetCustomerOrdersAsync(
+        string customerPrincipalId,
+        OrderStatus? status,
+        int page,
+        int pageSize
+    ) {
         var query = _dbContext.Orders
             .Include(o => o.Items)
             .Where(o => o.CustomerPrincipalId == customerPrincipalId);
@@ -491,10 +520,19 @@ public class OrderService(
             .Take(pageSize)
             .ToListAsync();
 
-        return new CustomerOrderPage([.. orders.Select(MapToOrderResponse)], totalCount);
+        var drivers = await DriversOfAsync([.. orders.Select(o => o.OrderNumber)]);
+
+        return new CustomerOrderPage(
+            [.. orders.Select(o => MapToOrderResponse(o, drivers.GetValueOrDefault(o.OrderNumber)))],
+            totalCount
+        );
     }
 
-    public async Task<OrderChangePage> OrdersChangedSinceAsync(DateTime? updatedThrough, string lastOrderNumber, int limit) {
+    public async Task<OrderChangePage> OrdersChangedSinceAsync(
+        DateTime? updatedThrough,
+        string lastOrderNumber,
+        int limit
+    ) {
         var query = _dbContext.Orders
             .AsNoTracking()
             .Include(o => o.Items)
@@ -517,23 +555,40 @@ public class OrderService(
         var page = hasMore ? rows.Take(limit) : rows;
 
         return new OrderChangePage(
-            [.. page.Select(o => new OrderChange(
-                o.OrderNumber,
-                o.CustomerPrincipalId,
-                o.MerchantPrincipalId,
-                o.Status,
-                [.. o.Items.Select(i => i.ProductTitle)],
-                DateTime.SpecifyKind(o.CreatedAt, DateTimeKind.Utc),
-                DateTime.SpecifyKind(o.UpdatedAt, DateTimeKind.Utc)
-            ))],
+            [.. page.Select(o =>
+                new OrderChange(
+                    o.OrderNumber,
+                    o.CustomerPrincipalId,
+                    o.MerchantPrincipalId,
+                    o.Status,
+                    [.. o.Items.Select(i => i.ProductTitle)],
+                    DateTime.SpecifyKind(o.CreatedAt, DateTimeKind.Utc),
+                    DateTime.SpecifyKind(o.UpdatedAt, DateTimeKind.Utc)
+                )
+            )],
             hasMore
         );
     }
 
-    private static OrderResponse MapToOrderResponse(OrderEntity order) => new(
+    private async Task<string?> DriverOfAsync(string orderNumber) {
+        return await _dbContext.ShippingSettlements
+            .Where(s => s.OrderNumber == orderNumber)
+            .Select(s => s.DriverPrincipalId)
+            .FirstOrDefaultAsync();
+    }
+
+    private async Task<Dictionary<string, string>> DriversOfAsync(List<string> orderNumbers) {
+        return await _dbContext.ShippingSettlements
+            .Where(s => orderNumbers.Contains(s.OrderNumber))
+            .ToDictionaryAsync(s => s.OrderNumber, s => s.DriverPrincipalId, StringComparer.Ordinal);
+    }
+
+    private static OrderResponse MapToOrderResponse(OrderEntity order, string? driverPrincipalId) => new(
         order.Id,
         order.OrderNumber,
         order.CustomerPrincipalId,
+        order.MerchantPrincipalId,
+        driverPrincipalId,
         order.Status.ToString(),
         order.Subtotal,
         order.DiscountAmount,
@@ -547,13 +602,15 @@ public class OrderService(
         order.DistanceKm,
         order.ShippingQuoteBasis.ToString(),
         order.CreatedAt,
-        [.. order.Items.Select(i => new OrderItemResponse(
-            i.Id,
-            i.ProductId,
-            i.ProductTitle,
-            i.UnitPrice,
-            i.Quantity,
-            i.LineSubtotal
-        ))]
+        [.. order.Items.Select(i =>
+            new OrderItemResponse(
+                i.Id,
+                i.ProductId,
+                i.ProductTitle,
+                i.UnitPrice,
+                i.Quantity,
+                i.LineSubtotal
+            )
+        )]
     );
 }
