@@ -65,6 +65,7 @@ public class CourierDispatcher(
                 dispatch,
                 $"{missing} has no point on the map; identity places an address when it is saved"
             );
+
             return false;
         }
 
@@ -107,7 +108,9 @@ public class CourierDispatcher(
 
         _logger.LogInformation(
             "{Order} was dispatched as {DispatchRef} on attempt {Attempt}",
-            order.OrderNumber, dispatch.DispatchRef, dispatch.Attempts
+            order.OrderNumber,
+            dispatch.DispatchRef,
+            dispatch.Attempts
         );
 
         return true;
@@ -127,6 +130,7 @@ public class CourierDispatcher(
                 dispatch,
                 $"the courier is assigned and the warehouse could not be told the tracking number: {e.Status.Detail}"
             );
+
             return false;
         }
 
@@ -135,6 +139,7 @@ public class CourierDispatcher(
                 dispatch,
                 $"the courier is assigned and the warehouse refused the tracking number: {recorded.Detail}"
             );
+
             return false;
         }
 
@@ -150,7 +155,10 @@ public class CourierDispatcher(
 
         _logger.LogWarning(
             "{Order} is not fully dispatched after {Attempts} attempt(s): {Reason}. Next attempt in {Backoff}.",
-            dispatch.OrderNumber, dispatch.Attempts, dispatch.LastError, backoff
+            dispatch.OrderNumber,
+            dispatch.Attempts,
+            dispatch.LastError,
+            backoff
         );
     }
 
@@ -160,7 +168,8 @@ public class CourierDispatcher(
 
         _logger.LogError(
             "{Order} will not be dispatched again without a person: {Reason}",
-            dispatch.OrderNumber, dispatch.LastError
+            dispatch.OrderNumber,
+            dispatch.LastError
         );
     }
 

@@ -27,6 +27,7 @@ public class IdentityAddressDirectory(
                     "identity knows no merchant {Principal}, so there is nowhere to collect from",
                     merchantPrincipalId
                 );
+
                 return null;
             }
 
@@ -36,6 +37,7 @@ public class IdentityAddressDirectory(
                   + "courier can be sent to it",
                     merchantPrincipalId
                 );
+
                 return null;
             }
 
@@ -61,6 +63,7 @@ public class IdentityAddressDirectory(
                   + "can be sent to it",
                     customerPrincipalId
                 );
+
                 return null;
             }
 

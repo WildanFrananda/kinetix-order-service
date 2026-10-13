@@ -74,14 +74,19 @@ public class CourierDispatchTests {
         public string? LastAwb { get; private set; }
 
         public Task<FulfillmentCreated> CreateTaskAsync(
-            string merchantPrincipalId, string orderNumber, IReadOnlyList<FulfillmentLine> lines
+            string merchantPrincipalId,
+            string orderNumber,
+            IReadOnlyList<FulfillmentLine> lines
         ) => throw new NotSupportedException("not used by these tests");
 
         public Task<StepResult> CancelTaskAsync(string merchantPrincipalId, string fulfillmentTaskId) =>
             throw new NotSupportedException("not used by these tests");
 
         public Task<StepResult> RecordCourierAwbAsync(
-            string merchantPrincipalId, string fulfillmentTaskId, string orderNumber, string awbNumber
+            string merchantPrincipalId,
+            string fulfillmentTaskId,
+            string orderNumber,
+            string awbNumber
         ) {
             AwbCalls += 1;
             LastAwb = awbNumber;
@@ -129,6 +134,7 @@ public class CourierDispatchTests {
                 foreach (var row in db.CourierDispatches.Where(d => d.NextAttemptAt != null)) {
                     row.NextAttemptAt = DateTime.UtcNow.AddSeconds(-1);
                 }
+
                 await db.SaveChangesAsync();
             }
 
@@ -168,6 +174,7 @@ public class CourierDispatchTests {
             RecipientName = "Sarah",
             RecipientPhone = "0812",
         });
+
         await db.SaveChangesAsync();
         return world;
     }
