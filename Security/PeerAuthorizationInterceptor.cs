@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Http.Features;
 namespace Kinetix.OrderService.Security;
 
 public sealed class PeerAuthorizationInterceptor : Interceptor {
-    private readonly HashSet<string> _allowed;
+    private readonly PeerAllowList _allowed;
     private readonly ILogger<PeerAuthorizationInterceptor> _log;
 
     public PeerAuthorizationInterceptor(IConfiguration config, ILogger<PeerAuthorizationInterceptor> log) {
@@ -17,9 +17,7 @@ public sealed class PeerAuthorizationInterceptor : Interceptor {
                 "KINETIX_GRPC_ALLOWED_PEERS is required and has no default."
             );
 
-        _allowed = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .ToHashSet(StringComparer.Ordinal
-        );
+        _allowed = PeerAllowList.Parse(raw);
 
         if (_allowed.Count == 0) {
             throw new InvalidOperationException("KINETIX_GRPC_ALLOWED_PEERS is set but names no services.");
@@ -73,39 +71,69 @@ public sealed class PeerAuthorizationInterceptor : Interceptor {
         if (peer is null) {
             _log.LogWarning(
                 "refused a gRPC call to {Method} from a peer with no client certificate (request_id={RequestId})",
-                context.Method, requestId
+                context.Method,
+                requestId
             );
-            throw new RpcException(new Status(
-                StatusCode.Unauthenticated,
-                "a client certificate carrying a SPIFFE identity is required"
-            ));
+            throw new RpcException(
+                new Status(
+                    StatusCode.Unauthenticated,
+                    "a client certificate carrying a SPIFFE identity is required"
+                )
+            );
         }
 
         var service = SpiffePeer.ServiceOf(peer);
         if (service is null) {
             _log.LogWarning(
-                "refused a gRPC call to {Method} from a peer whose certificate carries no SPIFFE identity (request_id={RequestId})",
-                context.Method, requestId
+                "refused a gRPC call to {Method} from a peer whose certificate carries no SPIFFE identity "
+              + "(request_id={RequestId})",
+                context.Method,
+                requestId
             );
-            throw new RpcException(new Status(
-                StatusCode.Unauthenticated,
-                "the client certificate carries no SPIFFE identity in this trust domain"
-            ));
+            throw new RpcException(
+                new Status(
+                    StatusCode.Unauthenticated,
+                    "the client certificate carries no SPIFFE identity in this trust domain"
+                )
+            );
         }
 
-        if (!_allowed.Contains(service)) {
+        if (!_allowed.Names(service)) {
             _log.LogWarning(
                 "refused a gRPC call to {Method} from {Peer}, which is not on the allow list (request_id={RequestId})",
-                context.Method, service, requestId
+                context.Method,
+                service,
+                requestId
             );
-            throw new RpcException(new Status(
-                StatusCode.PermissionDenied,
-                "this service is not permitted to call order"
-            ));
+            throw new RpcException(
+                new Status(
+                    StatusCode.PermissionDenied,
+                    "this service is not permitted to call order"
+                )
+            );
+        }
+
+        if (!_allowed.Permits(service, context.Method)) {
+            _log.LogWarning(
+                "refused a gRPC call to {Method} from {Peer}, which is not permitted that method "
+              + "(request_id={RequestId})",
+                context.Method,
+                service,
+                requestId
+            );
+            throw new RpcException(
+                new Status(
+                    StatusCode.PermissionDenied,
+                    $"{service} is not permitted to call {context.Method} on order"
+                )
+            );
         }
 
         _log.LogInformation(
-            "gRPC {Method} from {Peer} (request_id={RequestId})", context.Method, service, requestId
+            "gRPC {Method} from {Peer} (request_id={RequestId})",
+            context.Method,
+            service,
+            requestId
         );
     }
 }
