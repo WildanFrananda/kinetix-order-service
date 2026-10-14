@@ -80,3 +80,15 @@ refused.
 `shipping_settlements` when matching reported the delivery — empty until then. review rates exactly these
 two, so a buyer cannot choose whom a review or a rating is about. Both fields also reach the HTTP order
 response. `ListOrdersForPrincipal` fills them the same way, looking the couriers up in one query per page.
+
+## Each caller reaches only the RPCs it makes
+
+`KINETIX_GRPC_ALLOWED_PEERS` takes `peer` (every method), `peer@package.Service` (every method of that
+service) or `peer@package.Service/Method`, parsed by `PeerAllowList`. Until 2026-10-13 it named services
+only, so review — which reads one order — could also call `OrderDelivered`, which pays a courier fee to the
+principal it names, or `ReturnGoodsReceived`, which refunds. Infrastructure now grants review
+`GetOrderDetails`, matching `OrderDelivered`, search `OrdersChangedSince` and warehouse `FulfillmentPacked`,
+`OpenReturn` and `ReturnGoodsReceived`. A listed caller may still use server reflection: it describes the
+published contract and nothing else, and the mesh probes (`handshake_matrix.sh`, `trace_test.sh`,
+`money_roundtrip.sh`) resolve methods through it. A new call from another service needs its entry before it
+ships, or order answers `PermissionDenied`.
