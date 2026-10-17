@@ -66,6 +66,32 @@ build:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
+test:
+  extends: .dotnet
+  stage: test
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    POSTGRES_USER: ci
+    POSTGRES_PASSWORD: ci-ephemeral-not-a-deployed-credential
+    POSTGRES_DB: kinetix_order_test
+    POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    KINETIX_TEST_POSTGRES: "Host=postgres;Port=5432;Database=kinetix_order_test;Username=ci;Password=ci-ephemeral-not-a-deployed-credential"
+  script:
+    - sh bin/sync-contracts
+    - dotnet restore --locked-mode Kinetix.OrderService.csproj
+    - |
+      PLUGIN="$(find /root/.nuget/packages/grpc.tools -name grpc_csharp_plugin \
+        \( -path '*linux_x64*' -o -path '*linux_arm64*' \) | head -1)"
+      test -n "$PLUGIN" || { echo "grpc_csharp_plugin not found under the restored packages"; exit 1; }
+      dotnet test tests/Kinetix.OrderService.Tests.csproj -c Release \
+        -p:Protobuf_ProtocFullPath=/usr/bin/protoc \
+        -p:gRPC_PluginFullPath="$PLUGIN"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
 migrations:
   extends: .dotnet
   stage: test

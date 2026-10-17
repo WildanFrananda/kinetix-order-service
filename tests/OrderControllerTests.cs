@@ -59,7 +59,10 @@ public class OrderControllerTests {
     [Fact]
     public async Task IdentityNotSayingWhetherTheMerchantMaySellIs503() {
         var refusal = await CheckoutRefusal(
-            new MerchantStandingUnknownException("merchant-1", new RpcException(new Status(StatusCode.Unavailable, "down")))
+            new MerchantStandingUnknownException(
+                "merchant-1",
+                new RpcException(new Status(StatusCode.Unavailable, "down"))
+            )
         );
 
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, refusal.StatusCode);

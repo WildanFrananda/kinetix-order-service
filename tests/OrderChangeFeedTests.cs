@@ -16,6 +16,7 @@ using OrderProto = global::Order.V1;
 
 namespace Kinetix.OrderService.Tests;
 
+[Collection(PostgresCollection.Name)]
 public class OrderChangeFeedTests {
     private const string Buyer = "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7";
     private const string Merchant = "3aa957c8-b802-4d58-b9fc-f7b76ce60fa3";
@@ -30,8 +31,11 @@ public class OrderChangeFeedTests {
 
     private static OrderApplicationService FeedOver(OrderDbContext db) =>
         new(db, new Mock<ICartService>().Object, new Mock<IProductDirectory>().Object,
-            new Mock<IMerchantStanding>().Object, new Mock<IPricingClient>().Object, new Mock<IShippingClient>().Object, null!,
-            NullLogger<Kinetix.OrderService.Application.Services.OrderService>.Instance
+            new Mock<IMerchantStanding>().Object,
+            new Mock<IPricingClient>().Object,
+            new Mock<IShippingClient>().Object,
+            null!,
+            NullLogger<OrderApplicationService>.Instance
         );
 
     private static OrderEntity AnOrder(string number, DateTime updatedAt, string merchant = Merchant) =>
@@ -46,7 +50,13 @@ public class OrderChangeFeedTests {
             CreatedAt = updatedAt.AddMinutes(-5),
             UpdatedAt = updatedAt,
             Items = [
-                new OrderItem { ProductId = "SKU-1", ProductTitle = "Sepatu Kulit", UnitPrice = 100m, Quantity = 1, LineSubtotal = 100m }
+                new OrderItem {
+                    ProductId = "SKU-1",
+                    ProductTitle = "Sepatu Kulit",
+                    UnitPrice = 100m,
+                    Quantity = 1,
+                    LineSubtotal = 100m,
+                }
             ]
         };
 
@@ -173,7 +183,15 @@ public class OrderChangeFeedTests {
         orders.Setup(o => o.OrdersChangedSinceAsync(
                 It.IsAny<DateTime?>(), It.IsAny<string>(), It.IsAny<int>()))
             .ReturnsAsync(new OrderChangePage([
-                new OrderChange("ORD-A", Buyer, Merchant, OrderStatus.PAID, ["Sepatu Kulit"], Noon.AddMinutes(-5), Noon),
+                new OrderChange(
+                    "ORD-A",
+                    Buyer,
+                    Merchant,
+                    OrderStatus.PAID,
+                    ["Sepatu Kulit"],
+                    Noon.AddMinutes(-5),
+                    Noon
+                ),
                 new OrderChange("ORD-B", Buyer, Merchant, OrderStatus.SHIPPED, ["Tas"], Noon, Noon.AddMinutes(3))
             ], true));
 
@@ -192,7 +210,15 @@ public class OrderChangeFeedTests {
         orders.Setup(o => o.OrdersChangedSinceAsync(
                 It.IsAny<DateTime?>(), It.IsAny<string>(), It.IsAny<int>()))
             .ReturnsAsync(new OrderChangePage([
-                new OrderChange("ORD-A", Buyer, Merchant, OrderStatus.SHIPPED, ["Sepatu Kulit", "Tas"], Noon.AddMinutes(-5), Noon)
+                new OrderChange(
+                    "ORD-A",
+                    Buyer,
+                    Merchant,
+                    OrderStatus.SHIPPED,
+                    ["Sepatu Kulit", "Tas"],
+                    Noon.AddMinutes(-5),
+                    Noon
+                )
             ], false));
 
         var response = await ServerOver(orders.Object).OrdersChangedSince(

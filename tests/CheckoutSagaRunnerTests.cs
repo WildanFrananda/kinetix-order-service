@@ -43,9 +43,19 @@ public class CheckoutSagaRunnerTests {
         FulfillmentLines: [.. skus.Select(sku => new FulfillmentLine(sku, 1))]
     );
 
-    private static (Mock<IVoucherQuotaClient>, Mock<IFlashSaleClient>, Mock<IStockClient>, Mock<IEscrowClient>) AllAgreeing() {
+    private static (
+        Mock<IVoucherQuotaClient>,
+        Mock<IFlashSaleClient>,
+        Mock<IStockClient>,
+        Mock<IEscrowClient>
+    ) AllAgreeing() {
         var voucher = new Mock<IVoucherQuotaClient>();
-        voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+        voucher.Setup(c => c.RedeemVoucherAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>()
+        ))
             .ReturnsAsync(StepResult.Ok());
         voucher.Setup(c => c.ReleaseVoucherAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
@@ -57,9 +67,19 @@ public class CheckoutSagaRunnerTests {
             .ReturnsAsync(StepResult.Ok());
 
         var stock = new Mock<IStockClient>();
-        stock.Setup(c => c.ReserveStockAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
+        stock.Setup(c => c.ReserveStockAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<int>(),
+            It.IsAny<string>()
+        ))
             .ReturnsAsync(StepResult.Ok());
-        stock.Setup(c => c.ReleaseStockAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
+        stock.Setup(c => c.ReleaseStockAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<int>(),
+            It.IsAny<string>()
+        ))
             .ReturnsAsync(StepResult.Ok());
 
         var escrow = new Mock<IEscrowClient>();
@@ -175,7 +195,10 @@ public class CheckoutSagaRunnerTests {
         Assert.All(await db.CheckoutSagaSteps.ToListAsync(), s => Assert.Equal(SagaStepState.Done, s.State));
 
         voucher.Verify(c => c.ReleaseVoucherAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-        stock.Verify(c => c.ReleaseStockAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()), Times.Never);
+        stock.Verify(
+            c => c.ReleaseStockAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()),
+            Times.Never
+        );
         escrow.Verify(c => c.RefundHoldAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
 
@@ -342,7 +365,12 @@ public class CheckoutSagaRunnerTests {
         Assert.Equal(SagaState.Stuck, (await db.CheckoutSagas.SingleAsync()).State);
 
         await MakeDueAgain(db);
-        await runner.CompensateAsync(await db.CheckoutSagas.SingleAsync(), "retry", heldLease: null, CancellationToken.None);
+        await runner.CompensateAsync(
+            await db.CheckoutSagas.SingleAsync(),
+            "retry",
+            heldLease: null,
+            CancellationToken.None
+        );
 
         var saga = await db.CheckoutSagas.SingleAsync();
         Assert.Equal(SagaState.Abandoned, saga.State);
@@ -533,7 +561,12 @@ public class CheckoutSagaRunnerTests {
         Assert.NotNull(afterFirstRound.NeedsAttentionAt);
 
         await MakeDueAgain(db);
-        await runner.CompensateAsync(await db.CheckoutSagas.SingleAsync(), "retry", heldLease: null, CancellationToken.None);
+        await runner.CompensateAsync(
+            await db.CheckoutSagas.SingleAsync(),
+            "retry",
+            heldLease: null,
+            CancellationToken.None
+        );
 
         var saga = await db.CheckoutSagas.SingleAsync();
         Assert.Equal(SagaState.Compensated, saga.State);
@@ -562,6 +595,12 @@ public class CheckoutSagaRunnerTests {
 
         var order = await db.Orders.SingleAsync();
         Assert.Equal(OrderStatus.CANCELLED, order.Status);
+
+        var recorded = await db.OrderLifecycleEvents.SingleAsync();
+        Assert.Equal(OrderStatus.PENDING_PAYMENT, recorded.FromStatus);
+        Assert.Equal(OrderStatus.CANCELLED, recorded.ToStatus);
+        Assert.Equal(LifecycleActorKind.SYSTEM, recorded.ActorKind);
+        Assert.Null(recorded.ActorPrincipalId);
     }
 
     [Fact]
@@ -583,7 +622,12 @@ public class CheckoutSagaRunnerTests {
 
         for (var round = 0; round < 2; round++) {
             await MakeDueAgain(db);
-            await runner.CompensateAsync(await db.CheckoutSagas.SingleAsync(), "retry", heldLease: null, CancellationToken.None);
+            await runner.CompensateAsync(
+                await db.CheckoutSagas.SingleAsync(),
+                "retry",
+                heldLease: null,
+                CancellationToken.None
+            );
         }
 
         escrow.Verify(c => c.RefundHoldAsync("ORD-TEST-0001", It.IsAny<string>()), Times.Exactly(3));
@@ -622,7 +666,12 @@ public class CheckoutSagaRunnerTests {
         Assert.NotNull(afterFirstRound.NeedsAttentionAt);
 
         await MakeDueAgain(db);
-        await runner.CompensateAsync(await db.CheckoutSagas.SingleAsync(), "retry", heldLease: null, CancellationToken.None);
+        await runner.CompensateAsync(
+            await db.CheckoutSagas.SingleAsync(),
+            "retry",
+            heldLease: null,
+            CancellationToken.None
+        );
 
         escrow.Verify(c => c.RefundHoldAsync("ORD-TEST-0001", It.IsAny<string>()), Times.Exactly(2));
 
@@ -735,7 +784,10 @@ public class CheckoutSagaRunnerTests {
         var outcome = await Runner(db, voucher, flash, stock, escrow).RunAsync(PlanWith(null, ["SKU-1"]));
 
         Assert.True(outcome.Succeeded);
-        voucher.Verify(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        voucher.Verify(
+            c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()),
+            Times.Never
+        );
         Assert.DoesNotContain(await db.CheckoutSagaSteps.ToListAsync(), s => s.Name == SagaStepName.RedeemVoucher);
     }
 
@@ -771,7 +823,10 @@ public class CheckoutSagaRunnerTests {
 
         voucher.Verify(c => c.ReleaseVoucherAsync("SAVE10", "ORD-TEST-0001"), Times.Once);
 
-        stock.Verify(c => c.ReserveStockAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()), Times.Never);
+        stock.Verify(
+            c => c.ReserveStockAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()),
+            Times.Never
+        );
     }
 
     [Fact]

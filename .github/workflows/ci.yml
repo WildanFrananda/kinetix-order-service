@@ -53,6 +53,51 @@ jobs:
             -p:Protobuf_ProtocFullPath=/usr/bin/protoc \
             -p:gRPC_PluginFullPath="$PLUGIN"
 
+  # The suite ran nowhere until 2026-10-16: neither CI had a test step, and the Postgres tests return
+  # early without KINETIX_TEST_POSTGRES, so on a laptop they passed without asking Postgres anything.
+  # Run against a fresh database they raced each other's migrations. They now share one migrated
+  # database in an xunit collection, and a test fails when CI is set and the database is not.
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-ephemeral-not-a-deployed-credential
+          POSTGRES_DB: kinetix_order_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U ci"
+          --health-interval=10s --health-timeout=5s --health-retries=5
+
+    env:
+      KINETIX_TEST_POSTGRES: "Host=localhost;Port=5432;Database=kinetix_order_test;Username=ci;Password=ci-ephemeral-not-a-deployed-credential"
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+          dotnet-quality: preview
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler
+
+      - name: Fetch the contracts
+        run: sh bin/sync-contracts
+
+      - run: dotnet restore --locked-mode Kinetix.OrderService.csproj
+
+      - name: Test
+        run: |
+          PLUGIN="$(find ~/.nuget/packages/grpc.tools -name grpc_csharp_plugin -path '*linux_x64*' | head -1)"
+          test -n "$PLUGIN" || { echo "grpc_csharp_plugin not found under the restored packages"; exit 1; }
+          dotnet test tests/Kinetix.OrderService.Tests.csproj -c Release \
+            -p:Protobuf_ProtocFullPath=/usr/bin/protoc \
+            -p:gRPC_PluginFullPath="$PLUGIN"
+
   migrations:
     runs-on: ubuntu-latest
 

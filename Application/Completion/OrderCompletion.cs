@@ -6,6 +6,7 @@ using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Application.Completion;
 
@@ -25,7 +26,7 @@ public class OrderCompletion(
     private readonly ILogger<OrderCompletion> _logger = logger;
 
     public async Task<CompletionOutcome> CompleteAsync(
-        string orderNumber, bool waitForReturnWindow, CancellationToken cancellationToken
+        string orderNumber, bool waitForReturnWindow, LifecycleActor actor, CancellationToken cancellationToken
     ) {
         EscrowRelease release;
 
@@ -42,9 +43,8 @@ public class OrderCompletion(
 
             var now = DateTime.UtcNow;
 
-            order!.Status = OrderStatus.COMPLETED;
-            order.CompletedAt = now;
-            order.UpdatedAt = now;
+            order!.CompletedAt = now;
+            _dbContext.ChangeStatus(order, OrderStatus.COMPLETED, actor, now);
 
             release = new EscrowRelease {
                 OrderNumber = orderNumber,

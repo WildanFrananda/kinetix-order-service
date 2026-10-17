@@ -3,6 +3,7 @@ using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Entities;
 using DomainStatus = Kinetix.OrderService.Domain.Enums.OrderStatus;
 using Kinetix.OrderService.Infrastructure.Persistence;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Application.Fulfillment;
 
@@ -50,8 +51,12 @@ public class FulfillmentPackedHandler(
         var now = DateTime.UtcNow;
 
         if (order.Status is DomainStatus.PAID) {
-            order.Status = DomainStatus.PROCESSING_FULFILLMENT;
-            order.UpdatedAt = now;
+            _dbContext.ChangeStatus(
+                order,
+                DomainStatus.PROCESSING_FULFILLMENT,
+                LifecycleActor.Merchant(merchantPrincipalId),
+                now
+            );
         }
 
         var dispatch = await _dbContext.CourierDispatches.FirstOrDefaultAsync(d => d.OrderNumber == orderNumber);

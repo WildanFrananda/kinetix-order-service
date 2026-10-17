@@ -2,6 +2,7 @@ using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Application.Returns;
 
@@ -15,7 +16,7 @@ public class ReturnRejection(
     private readonly ILogger<ReturnRejection> _logger = logger;
 
     public async Task<ReturnRejectionStatus> RejectAsync(
-        string returnNumber, string reason, CancellationToken cancellationToken
+        string returnNumber, string reason, LifecycleActor actor, CancellationToken cancellationToken
     ) {
         if (string.IsNullOrWhiteSpace(reason)) {
             return ReturnRejectionStatus.NoReasonGiven;
@@ -45,13 +46,17 @@ public class ReturnRejection(
             return ReturnRejectionStatus.GoodsAlreadyReceived;
         }
 
+        var buyer = await _dbContext.Orders
+            .Where(o => o.OrderNumber == orderNumber)
+            .Select(o => o.CustomerPrincipalId)
+            .FirstAsync(cancellationToken);
+
         var now = DateTime.UtcNow;
         var stated = reason.Trim();
 
-        record.Status = ReturnStatus.REJECTED;
         record.RejectedAt = now;
         record.RejectionReason = stated.Length <= 500 ? stated : stated[..500];
-        record.UpdatedAt = now;
+        _dbContext.ChangeReturnStatus(record, ReturnStatus.REJECTED, buyer, actor, now);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);

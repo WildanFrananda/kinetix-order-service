@@ -13,7 +13,12 @@ namespace Kinetix.OrderService.Tests;
 public class MeshClientHandlerTests {
     private static bool Accepts(ServiceIdentity identity, X509Certificate2 server, string expectedService) {
         using var handler = MeshClientHandler.For(identity, expectedService, NullLogger.Instance);
-        return handler.SslOptions.RemoteCertificateValidationCallback!(new object(), server, null, SslPolicyErrors.None);
+        return handler.SslOptions.RemoteCertificateValidationCallback!(
+            new object(),
+            server,
+            null,
+            SslPolicyErrors.None
+        );
     }
 
     [Fact]

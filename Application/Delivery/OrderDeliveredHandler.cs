@@ -3,6 +3,7 @@ using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using DomainStatus = Kinetix.OrderService.Domain.Enums.OrderStatus;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Application.Delivery;
 
@@ -57,9 +58,8 @@ public class OrderDeliveredHandler(
             or DomainStatus.PROCESSING_FULFILLMENT
             or DomainStatus.SHIPPED
         ) {
-            order.Status = DomainStatus.DELIVERED;
             order.DeliveredAt = settlement.DeliveredAt;
-            order.UpdatedAt = now;
+            _dbContext.ChangeStatus(order, DomainStatus.DELIVERED, LifecycleActor.Driver(driverPrincipalId), now);
         } else if (order.Status is not (DomainStatus.DELIVERED or DomainStatus.COMPLETED)) {
             _logger.LogWarning(
                 "{Order} was reported delivered while it stood at {Status}. The fee is recorded as "

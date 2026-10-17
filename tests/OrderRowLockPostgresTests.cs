@@ -9,11 +9,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Tests;
 
+[Collection(PostgresCollection.Name)]
 public class OrderRowLockPostgresTests {
     private const string Merchant = "3aa957c8-b802-4d58-b9fc-f7b76ce60fa3";
+    private const string Buyer = "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7";
 
     private static readonly TimeSpan BlockedLongEnough = TimeSpan.FromMilliseconds(750);
 
@@ -34,20 +37,25 @@ public class OrderRowLockPostgresTests {
 
     private static async Task SeedDeliveredAsync(OrderDbContext db, string orderNumber) {
         await db.Database.MigrateAsync();
-        await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM escrow_releases WHERE order_number = {orderNumber}");
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"DELETE FROM escrow_releases WHERE order_number = {orderNumber}"
+        );
         await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM order_returns WHERE order_number = {orderNumber}");
         await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM orders WHERE order_number = {orderNumber}");
 
-        db.Orders.Add(new OrderEntity {
+        var order = new OrderEntity {
             OrderNumber = orderNumber,
-            CustomerPrincipalId = "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7",
+            CustomerPrincipalId = Buyer,
             MerchantPrincipalId = Merchant,
             Status = OrderStatus.DELIVERED,
             DeliveredAt = DateTime.UtcNow.AddDays(-8),
             ShippingAddress = "Jl. Cikini Raya No. 99",
             RecipientName = "Sarah",
             RecipientPhone = "0812",
-        });
+        };
+
+        db.Orders.Add(order);
+        db.RecordPlaced(order, LifecycleActor.System);
         await db.SaveChangesAsync();
     }
 
@@ -76,7 +84,7 @@ public class OrderRowLockPostgresTests {
         Assert.False(open.IsCompleted);
 
         var order = await completing.Orders.SingleAsync(o => o.OrderNumber == orderNumber);
-        order.Status = OrderStatus.COMPLETED;
+        completing.ChangeStatus(order, OrderStatus.COMPLETED, LifecycleActor.System, DateTime.UtcNow);
         await completing.SaveChangesAsync();
         await transaction.CommitAsync();
 
@@ -105,18 +113,26 @@ public class OrderRowLockPostgresTests {
         var completion = new OrderCompletion(completing, new OrderRowLock(completing), escrow.Object,
             new ReturnWindow(7), NullLogger<OrderCompletion>.Instance
         );
-        var complete = completion.CompleteAsync(orderNumber, waitForReturnWindow: true, CancellationToken.None);
+        var complete = completion.CompleteAsync(
+            orderNumber,
+            waitForReturnWindow: true,
+            LifecycleActor.System,
+            CancellationToken.None
+        );
 
         await Task.WhenAny(complete, Task.Delay(BlockedLongEnough));
         Assert.False(complete.IsCompleted);
 
-        opening.OrderReturns.Add(new OrderReturn {
+        var opened = new OrderReturn {
             ReturnNumber = "RMA-PGLOCK-1",
             OrderNumber = orderNumber,
             MerchantPrincipalId = Merchant,
             Reason = "Wrong size",
             Status = ReturnStatus.OPEN,
-        });
+        };
+
+        opening.OrderReturns.Add(opened);
+        opening.RecordReturnOpened(opened, Buyer, LifecycleActor.Merchant(Merchant));
         await opening.SaveChangesAsync();
         await transaction.CommitAsync();
 

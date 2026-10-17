@@ -8,6 +8,7 @@ using Xunit;
 
 namespace Kinetix.OrderService.Tests;
 
+[Collection(PostgresCollection.Name)]
 public class SagaLeaseStorePostgresTests {
     private const string Customer = "f59fd296-a50f-4a32-970f-a1d1fddd76ae";
 

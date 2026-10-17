@@ -4,6 +4,8 @@ using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.Infrastructure.Persistence;
+using Kinetix.OrderService.Application.Lifecycle;
+using Microsoft.EntityFrameworkCore;
 
 namespace Kinetix.OrderService.Application.Returns;
 
@@ -25,11 +27,16 @@ public class ReturnRefunds(
             return record.Status is ReturnStatus.RESOLVED;
         }
 
+        var buyer = await _dbContext.Orders
+            .Where(o => o.OrderNumber == record.OrderNumber)
+            .Select(o => o.CustomerPrincipalId)
+            .FirstAsync(cancellationToken);
+
         record.RefundAttempts += 1;
         record.UpdatedAt = DateTime.UtcNow;
 
         if (amount <= 0m) {
-            Resolve(record);
+            Resolve(record, buyer);
         } else {
             try {
                 var result = await _escrowClient.RefundGoodsAsync(
@@ -37,7 +44,7 @@ public class ReturnRefunds(
                 );
 
                 if (result.Success) {
-                    Resolve(record);
+                    Resolve(record, buyer);
                 } else {
                     Halt(record, result.Detail ?? "payment refused the refund");
                 }
@@ -52,14 +59,13 @@ public class ReturnRefunds(
         return record.Status is ReturnStatus.RESOLVED;
     }
 
-    private void Resolve(OrderReturn record) {
+    private void Resolve(OrderReturn record, string buyer) {
         var now = DateTime.UtcNow;
 
-        record.Status = ReturnStatus.RESOLVED;
         record.ResolvedAt = now;
         record.NextRefundAttemptAt = null;
         record.LastRefundError = null;
-        record.UpdatedAt = now;
+        _dbContext.ChangeReturnStatus(record, ReturnStatus.RESOLVED, buyer, LifecycleActor.System, now);
 
         _logger.LogInformation(
             "{Return} refunded {Amount} to the buyer of {Order}",

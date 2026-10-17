@@ -119,8 +119,16 @@ public class OrderCompletionSweeperTests {
         using (var scope = services.CreateScope()) {
             var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
             db.EscrowReleases.AddRange(
-                new EscrowRelease { OrderNumber = "ORD-DUE", Attempts = 1, NextAttemptAt = DateTime.UtcNow.AddMinutes(-1) },
-                new EscrowRelease { OrderNumber = "ORD-LATER", Attempts = 1, NextAttemptAt = DateTime.UtcNow.AddMinutes(5) },
+                new EscrowRelease {
+                    OrderNumber = "ORD-DUE",
+                    Attempts = 1,
+                    NextAttemptAt = DateTime.UtcNow.AddMinutes(-1),
+                },
+                new EscrowRelease {
+                    OrderNumber = "ORD-LATER",
+                    Attempts = 1,
+                    NextAttemptAt = DateTime.UtcNow.AddMinutes(5),
+                },
                 new EscrowRelease { OrderNumber = "ORD-HALTED", Attempts = 1, LastError = "escrow is REFUNDED" }
             );
             await db.SaveChangesAsync();

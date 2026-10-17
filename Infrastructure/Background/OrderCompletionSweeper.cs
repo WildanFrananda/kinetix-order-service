@@ -3,6 +3,7 @@ using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Infrastructure.Background;
 
@@ -97,7 +98,12 @@ public class OrderCompletionSweeper(
                 return;
             }
 
-            await completion.CompleteAsync(orderNumber, waitForReturnWindow: true, stoppingToken);
+            await completion.CompleteAsync(
+                orderNumber,
+                waitForReturnWindow: true,
+                LifecycleActor.System,
+                stoppingToken
+            );
         }
     }
 

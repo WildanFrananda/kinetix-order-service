@@ -11,6 +11,7 @@ using Kinetix.OrderService.DTOs.Requests;
 using Kinetix.OrderService.DTOs.Responses;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Application.Services;
 
@@ -148,6 +149,7 @@ public class OrderService(
         };
 
         _dbContext.Orders.Add(order);
+        _dbContext.RecordPlaced(order, LifecycleActor.Buyer(customerPrincipalId));
         await _dbContext.SaveChangesAsync();
 
         var plan = new CheckoutPlan(
@@ -177,15 +179,13 @@ public class OrderService(
         var outcome = await _sagaRunner.RunAsync(plan);
 
         if (!outcome.Succeeded) {
-            order.Status = OrderStatus.CANCELLED;
-            order.UpdatedAt = DateTime.UtcNow;
+            _dbContext.ChangeStatus(order, OrderStatus.CANCELLED, LifecycleActor.System, DateTime.UtcNow);
             await _dbContext.SaveChangesAsync();
 
             throw new CheckoutFailedException(orderNumber, outcome.FailureReason ?? "a checkout step was refused");
         }
 
-        order.Status = OrderStatus.PAID;
-        order.UpdatedAt = DateTime.UtcNow;
+        _dbContext.ChangeStatus(order, OrderStatus.PAID, LifecycleActor.Buyer(customerPrincipalId), DateTime.UtcNow);
         await _dbContext.SaveChangesAsync();
 
         await _cartService.ClearCartAsync(customerPrincipalId);

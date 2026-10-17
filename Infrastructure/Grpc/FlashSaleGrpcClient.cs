@@ -12,7 +12,12 @@ public class FlashSaleGrpcClient(
     private readonly PricingService.PricingServiceClient _client = client;
     private readonly ILogger<FlashSaleGrpcClient> _logger = logger;
 
-    public async Task<StepResult> AllocateAsync(string flashSaleId, string productId, int quantity, string orderNumber) {
+    public async Task<StepResult> AllocateAsync(
+        string flashSaleId,
+        string productId,
+        int quantity,
+        string orderNumber
+    ) {
         try {
             var response = await _client.AllocateFlashSaleStockAsync(new AllocateFlashSaleStockRequest {
                 FlashSaleId = flashSaleId,

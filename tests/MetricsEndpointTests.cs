@@ -70,7 +70,13 @@ public class MetricsEndpointTests {
         Assert.Matches(new Regex("^kinetix_http_request_duration_seconds_bucket", RegexOptions.Multiline), body);
         Assert.Matches(new Regex("^kinetix_http_request_duration_seconds_sum", RegexOptions.Multiline), body);
         Assert.Matches(new Regex("^kinetix_http_request_duration_seconds_count", RegexOptions.Multiline), body);
-        Assert.Matches(new Regex("^kinetix_build_info\\{service=\"kinetix-order-service\",version=\"[^\"]+\"\\} 1", RegexOptions.Multiline), body);
+        Assert.Matches(
+            new Regex(
+                "^kinetix_build_info\\{service=\"kinetix-order-service\",version=\"[^\"]+\"\\} 1",
+                RegexOptions.Multiline
+            ),
+            body
+        );
     }
 
     [Fact]
