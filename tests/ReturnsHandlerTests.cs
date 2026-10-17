@@ -49,8 +49,20 @@ public class ReturnsHandlerTests {
         params OrderItem[] items
     ) {
         OrderItem[] bought = items.Length > 0 ? items : [
-            new OrderItem { ProductId = "GAMIS-RED-M", ProductTitle = "Gamis", UnitPrice = 75000m, Quantity = 2, LineSubtotal = 150000m },
-            new OrderItem { ProductId = "GAMIS-BLU-L", ProductTitle = "Gamis", UnitPrice = 50000m, Quantity = 1, LineSubtotal = 50000m },
+            new OrderItem {
+                ProductId = "GAMIS-RED-M",
+                ProductTitle = "Gamis",
+                UnitPrice = 75000m,
+                Quantity = 2,
+                LineSubtotal = 150000m,
+            },
+            new OrderItem {
+                ProductId = "GAMIS-BLU-L",
+                ProductTitle = "Gamis",
+                UnitPrice = 50000m,
+                Quantity = 1,
+                LineSubtotal = 50000m,
+            },
         ];
         decimal subtotal = bought.Sum(i => i.LineSubtotal);
 
@@ -322,12 +334,24 @@ public class ReturnsHandlerTests {
     public async Task ARefundThatDoesNotDivideEvenlyIsRoundedDownToTheCent() {
         using var db = NewDbContext();
         await SeedOrder(db, DomainStatus.DELIVERED, 1000m,
-            new OrderItem { ProductId = "SOCK", ProductTitle = "Sock", UnitPrice = 10000m, Quantity = 3, LineSubtotal = 30000m }
+            new OrderItem {
+                ProductId = "SOCK",
+                ProductTitle = "Sock",
+                UnitPrice = 10000m,
+                Quantity = 3,
+                LineSubtotal = 30000m,
+            }
         );
         var handler = NewHandler(db);
         var opened = await handler.OpenAsync(OrderNumber, Merchant, "Holes");
 
-        await handler.GoodsReceivedAsync(opened.ReturnNumber, Merchant, [new ReturnedLine("SOCK", 1)], "A-01-1", default);
+        await handler.GoodsReceivedAsync(
+            opened.ReturnNumber,
+            Merchant,
+            [new ReturnedLine("SOCK", 1)],
+            "A-01-1",
+            default
+        );
 
         Assert.Equal(9666.66m, (await Stored(db, opened.ReturnNumber)).RefundAmount);
     }

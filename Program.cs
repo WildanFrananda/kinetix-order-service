@@ -270,6 +270,7 @@ builder.Services.AddScoped<IReturnRefunds, ReturnRefunds>();
 builder.Services.AddScoped<IReturnRejection, ReturnRejection>();
 builder.Services.AddScoped<IOrderRowLock, OrderRowLock>();
 builder.Services.AddScoped<IOrderCompletion, OrderCompletion>();
+builder.Services.AddScoped<IOrderLifecycleFeed, OrderLifecycleFeed>();
 builder.Services.AddSingleton(ReturnWindow.FromConfiguration(builder.Configuration));
 
 builder.Services.AddSingleton<SagaWorkerIdentity>();
@@ -373,6 +374,7 @@ app.MapControllers();
 MetricsEndpoint.Map(app, Metrics.DefaultRegistry).AllowAnonymous();
 
 app.MapGrpcService<OrderGrpcServerService>().RequireHost($"*:{grpcPort}");
+app.MapGrpcService<OrderLifecycleGrpcService>().RequireHost($"*:{grpcPort}");
 
 app.MapGrpcReflectionService();
 

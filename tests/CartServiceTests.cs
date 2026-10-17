@@ -68,7 +68,10 @@ public class CartServiceTests {
         );
 
         _mockCache.Verify(c => c.SetAsync(
-            It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<DistributedCacheEntryOptions>(), It.IsAny<CancellationToken>()
+            It.IsAny<string>(),
+            It.IsAny<byte[]>(),
+            It.IsAny<DistributedCacheEntryOptions>(),
+            It.IsAny<CancellationToken>()
         ), Times.Never);
     }
 

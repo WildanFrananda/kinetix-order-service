@@ -5,6 +5,7 @@ using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.Infrastructure.Http;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Application.Checkout;
 
@@ -646,8 +647,7 @@ public class CheckoutSagaRunner(
             return;
         }
 
-        order.Status = OrderStatus.CANCELLED;
-        order.UpdatedAt = DateTime.UtcNow;
+        _dbContext.ChangeStatus(order, OrderStatus.CANCELLED, LifecycleActor.System, DateTime.UtcNow);
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 

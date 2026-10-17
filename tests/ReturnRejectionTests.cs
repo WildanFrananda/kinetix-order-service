@@ -10,10 +10,13 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Tests;
 
 public class ReturnRejectionTests {
+    private static readonly LifecycleActor Admin = LifecycleActor.Admin("0b6f1c7e-2d4a-4e8b-9c3f-5a1d7e9b2c40");
+
     private const string OrderNumber = "ORD-REJECT-1";
     private const string ReturnNumber = "RMA-REJECT-1";
 
@@ -53,7 +56,7 @@ public class ReturnRejectionTests {
         var rows = new UnlockedOrderRows();
 
         var status = await NewRejection(db, rows)
-            .RejectAsync(ReturnNumber, "  nothing came back in 30 days  ", CancellationToken.None);
+            .RejectAsync(ReturnNumber, "  nothing came back in 30 days  ", Admin, CancellationToken.None);
 
         Assert.Equal(ReturnRejectionStatus.Rejected, status);
         var stored = await db.OrderReturns.SingleAsync();
@@ -73,9 +76,19 @@ public class ReturnRejectionTests {
             NullLogger<OrderCompletion>.Instance
         );
 
-        var before = await completion.CompleteAsync(OrderNumber, waitForReturnWindow: true, CancellationToken.None);
-        await NewRejection(db).RejectAsync(ReturnNumber, "nothing came back", CancellationToken.None);
-        var after = await completion.CompleteAsync(OrderNumber, waitForReturnWindow: true, CancellationToken.None);
+        var before = await completion.CompleteAsync(
+            OrderNumber,
+            waitForReturnWindow: true,
+            LifecycleActor.System,
+            CancellationToken.None
+        );
+        await NewRejection(db).RejectAsync(ReturnNumber, "nothing came back", Admin, CancellationToken.None);
+        var after = await completion.CompleteAsync(
+            OrderNumber,
+            waitForReturnWindow: true,
+            LifecycleActor.System,
+            CancellationToken.None
+        );
 
         Assert.Equal(CompletionStatus.ReturnUnresolved, before.Status);
         Assert.Equal(CompletionStatus.Completed, after.Status);
@@ -89,7 +102,12 @@ public class ReturnRejectionTests {
         using var db = NewDbContext();
         await Seed(db, status, DateTime.UtcNow.AddDays(-1));
 
-        var outcome = await NewRejection(db).RejectAsync(ReturnNumber, "changed my mind", CancellationToken.None);
+        var outcome = await NewRejection(db).RejectAsync(
+            ReturnNumber,
+            "changed my mind",
+            Admin,
+            CancellationToken.None
+        );
 
         Assert.Equal(ReturnRejectionStatus.GoodsAlreadyReceived, outcome);
         Assert.Equal(status, (await db.OrderReturns.SingleAsync()).Status);
@@ -102,7 +120,7 @@ public class ReturnRejectionTests {
         using var db = NewDbContext();
         await Seed(db, ReturnStatus.OPEN);
 
-        var outcome = await NewRejection(db).RejectAsync(ReturnNumber, reason, CancellationToken.None);
+        var outcome = await NewRejection(db).RejectAsync(ReturnNumber, reason, Admin, CancellationToken.None);
 
         Assert.Equal(ReturnRejectionStatus.NoReasonGiven, outcome);
         Assert.Equal(ReturnStatus.OPEN, (await db.OrderReturns.SingleAsync()).Status);
@@ -114,8 +132,8 @@ public class ReturnRejectionTests {
         await Seed(db, ReturnStatus.OPEN);
         var rejection = NewRejection(db);
 
-        await rejection.RejectAsync(ReturnNumber, "first", CancellationToken.None);
-        var again = await rejection.RejectAsync(ReturnNumber, "second", CancellationToken.None);
+        await rejection.RejectAsync(ReturnNumber, "first", Admin, CancellationToken.None);
+        var again = await rejection.RejectAsync(ReturnNumber, "second", Admin, CancellationToken.None);
 
         Assert.Equal(ReturnRejectionStatus.AlreadyRejected, again);
         Assert.Equal("first", (await db.OrderReturns.SingleAsync()).RejectionReason);
@@ -125,7 +143,7 @@ public class ReturnRejectionTests {
     public async Task AnUnknownReturnIsSaidToBeUnknown() {
         using var db = NewDbContext();
 
-        var outcome = await NewRejection(db).RejectAsync("RMA-NOBODY", "why", CancellationToken.None);
+        var outcome = await NewRejection(db).RejectAsync("RMA-NOBODY", "why", Admin, CancellationToken.None);
 
         Assert.Equal(ReturnRejectionStatus.NoSuchReturn, outcome);
     }

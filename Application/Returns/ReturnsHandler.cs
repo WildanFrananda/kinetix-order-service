@@ -4,6 +4,7 @@ using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Application.Returns;
 
@@ -73,6 +74,7 @@ public class ReturnsHandler(
         };
 
         _dbContext.OrderReturns.Add(opened);
+        _dbContext.RecordReturnOpened(opened, order.CustomerPrincipalId, LifecycleActor.Merchant(merchantPrincipalId));
         await _dbContext.SaveChangesAsync();
         await transaction.CommitAsync();
 
@@ -150,11 +152,16 @@ public class ReturnsHandler(
 
             var now = DateTime.UtcNow;
 
-            record.Status = ReturnStatus.GOODS_RECEIVED;
             record.GoodsReceivedAt = receivedAt == default ? now : receivedAt;
             record.BinCode = string.IsNullOrWhiteSpace(binCode) ? null : binCode;
             record.RefundAmount = ProRataRefund(order, usable);
-            record.UpdatedAt = now;
+            _dbContext.ChangeReturnStatus(
+                record,
+                ReturnStatus.GOODS_RECEIVED,
+                order.CustomerPrincipalId,
+                LifecycleActor.Merchant(merchantPrincipalId),
+                now
+            );
 
             if (order.Status is OrderStatus.DELIVERED) {
                 record.NextRefundAttemptAt = now;

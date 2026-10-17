@@ -495,6 +495,89 @@ namespace Kinetix.OrderService.Migrations {
                 b.ToTable("order_items");
             });
 
+            modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.OrderLifecycleEvent", b => {
+                b.Property<long>("Sequence")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("bigint")
+                    .HasColumnName("sequence");
+
+                NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Sequence"));
+
+                b.Property<string>("ActorKind")
+                    .IsRequired()
+                    .HasMaxLength(20)
+                    .HasColumnType("character varying(20)")
+                    .HasColumnName("actor_kind");
+
+                b.Property<string>("ActorPrincipalId")
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("actor_principal_id");
+
+                b.Property<string>("BuyerPrincipalId")
+                    .IsRequired()
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("buyer_principal_id");
+
+                b.Property<string>("FromStatus")
+                    .HasMaxLength(30)
+                    .HasColumnType("character varying(30)")
+                    .HasColumnName("from_status");
+
+                b.Property<string>("Kind")
+                    .IsRequired()
+                    .HasMaxLength(30)
+                    .HasColumnType("character varying(30)")
+                    .HasColumnName("kind");
+
+                b.Property<string>("MerchantPrincipalId")
+                    .IsRequired()
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("merchant_principal_id");
+
+                b.Property<DateTime>("OccurredAt")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("occurred_at");
+
+                b.Property<string>("OrderNumber")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("character varying(50)")
+                    .HasColumnName("order_number");
+
+                b.Property<string>("ReturnNumber")
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("return_number");
+
+                b.Property<string>("ReturnStatus")
+                    .HasMaxLength(30)
+                    .HasColumnType("character varying(30)")
+                    .HasColumnName("return_status");
+
+                b.Property<string>("ToStatus")
+                    .HasMaxLength(30)
+                    .HasColumnType("character varying(30)")
+                    .HasColumnName("to_status");
+
+                b.Property<ulong>("TransactionId")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("xid8")
+                    .HasColumnName("transaction_id")
+                    .HasDefaultValueSql("pg_current_xact_id()");
+
+                b.HasKey("Sequence");
+
+                b.HasIndex("OrderNumber");
+
+                b.HasIndex("TransactionId", "Sequence")
+                    .HasDatabaseName("ix_order_lifecycle_events_position");
+
+                b.ToTable("order_lifecycle_events");
+            });
+
             modelBuilder.Entity("Kinetix.OrderService.Domain.Entities.OrderReturn", b => {
                 b.Property<string>("ReturnNumber")
                     .HasMaxLength(64)

@@ -73,7 +73,12 @@ public class ShippingGrpcClientTests {
         matching.Setup(c => c.EstimateShippingOptionsAsync(
             It.IsAny<ShippingProto.EstimateShippingOptionsRequest>(), It.IsAny<Metadata>(),
             It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()
-        )).Returns((ShippingProto.EstimateShippingOptionsRequest request, Metadata _, DateTime? __, CancellationToken ___) => {
+        )).Returns((
+            ShippingProto.EstimateShippingOptionsRequest request,
+            Metadata _,
+            DateTime? __,
+            CancellationToken ___
+        ) => {
             sent = request;
             return Answer(new ShippingProto.EstimateShippingOptionsResponse { DistanceKm = 0 });
         });
@@ -92,7 +97,12 @@ public class ShippingGrpcClientTests {
         matching.Setup(c => c.EstimateShippingOptionsAsync(
             It.IsAny<ShippingProto.EstimateShippingOptionsRequest>(), It.IsAny<Metadata>(),
             It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()
-        )).Returns((ShippingProto.EstimateShippingOptionsRequest request, Metadata _, DateTime? __, CancellationToken ___) => {
+        )).Returns((
+            ShippingProto.EstimateShippingOptionsRequest request,
+            Metadata _,
+            DateTime? __,
+            CancellationToken ___
+        ) => {
             sent = request;
             return Answer(new ShippingProto.EstimateShippingOptionsResponse { DistanceKm = 0 });
         });

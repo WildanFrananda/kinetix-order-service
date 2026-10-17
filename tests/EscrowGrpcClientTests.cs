@@ -80,7 +80,12 @@ public class EscrowGrpcClientTests {
             It.IsAny<PaymentProto.CreateEscrowHoldRequest>(), It.IsAny<Metadata>(),
             It.IsAny<DateTime?>(), It.IsAny<CancellationToken>())
         )
-            .Returns((PaymentProto.CreateEscrowHoldRequest request, Metadata _, DateTime? __, CancellationToken ___) => {
+            .Returns((
+                PaymentProto.CreateEscrowHoldRequest request,
+                Metadata _,
+                DateTime? __,
+                CancellationToken ___
+            ) => {
                 sent = request;
                 return Answer(new PaymentProto.EscrowHoldResponse { Found = true, AlreadyApplied = true });
             });

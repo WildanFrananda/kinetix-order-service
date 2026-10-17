@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Tests;
 
@@ -69,7 +70,7 @@ public class OrderCompletionTests {
         var rows = new UnlockedOrderRows();
 
         var outcome = await NewCompletion(db, escrow.Object, rows)
-            .CompleteAsync(OrderNumber, waitForReturnWindow: true, CancellationToken.None);
+            .CompleteAsync(OrderNumber, waitForReturnWindow: true, LifecycleActor.System, CancellationToken.None);
 
         Assert.Equal(CompletionStatus.Completed, outcome.Status);
         Assert.True(outcome.EscrowReleased);
@@ -90,7 +91,7 @@ public class OrderCompletionTests {
         var escrow = EscrowReleasing();
 
         var outcome = await NewCompletion(db, escrow.Object)
-            .CompleteAsync(OrderNumber, waitForReturnWindow: true, CancellationToken.None);
+            .CompleteAsync(OrderNumber, waitForReturnWindow: true, LifecycleActor.System, CancellationToken.None);
 
         Assert.Equal(CompletionStatus.WindowStillOpen, outcome.Status);
         Assert.Equal(OrderStatus.DELIVERED, (await db.Orders.SingleAsync()).Status);
@@ -106,7 +107,7 @@ public class OrderCompletionTests {
         await db.SaveChangesAsync();
 
         var outcome = await NewCompletion(db, EscrowReleasing().Object)
-            .CompleteAsync(OrderNumber, waitForReturnWindow: true, CancellationToken.None);
+            .CompleteAsync(OrderNumber, waitForReturnWindow: true, LifecycleActor.System, CancellationToken.None);
 
         Assert.Equal(CompletionStatus.WindowStillOpen, outcome.Status);
     }
@@ -117,7 +118,7 @@ public class OrderCompletionTests {
         await SeedOrder(db, deliveredDaysAgo: 1);
 
         var outcome = await NewCompletion(db, EscrowReleasing().Object)
-            .CompleteAsync(OrderNumber, waitForReturnWindow: false, CancellationToken.None);
+            .CompleteAsync(OrderNumber, waitForReturnWindow: false, LifecycleActor.System, CancellationToken.None);
 
         Assert.Equal(CompletionStatus.Completed, outcome.Status);
         Assert.Equal(OrderStatus.COMPLETED, (await db.Orders.SingleAsync()).Status);
@@ -135,7 +136,7 @@ public class OrderCompletionTests {
         var escrow = EscrowReleasing();
 
         var outcome = await NewCompletion(db, escrow.Object)
-            .CompleteAsync(OrderNumber, waitForReturnWindow: false, CancellationToken.None);
+            .CompleteAsync(OrderNumber, waitForReturnWindow: false, LifecycleActor.System, CancellationToken.None);
 
         Assert.Equal(CompletionStatus.NotDelivered, outcome.Status);
         Assert.Equal(status, (await db.Orders.SingleAsync()).Status);
@@ -152,7 +153,7 @@ public class OrderCompletionTests {
         var escrow = EscrowReleasing();
 
         var outcome = await NewCompletion(db, escrow.Object)
-            .CompleteAsync(OrderNumber, waitForReturnWindow: false, CancellationToken.None);
+            .CompleteAsync(OrderNumber, waitForReturnWindow: false, LifecycleActor.System, CancellationToken.None);
 
         Assert.Equal(CompletionStatus.ReturnUnresolved, outcome.Status);
         Assert.Equal(OrderStatus.DELIVERED, (await db.Orders.SingleAsync()).Status);
@@ -168,7 +169,7 @@ public class OrderCompletionTests {
         await SeedReturn(db, status);
 
         var outcome = await NewCompletion(db, EscrowReleasing().Object)
-            .CompleteAsync(OrderNumber, waitForReturnWindow: true, CancellationToken.None);
+            .CompleteAsync(OrderNumber, waitForReturnWindow: true, LifecycleActor.System, CancellationToken.None);
 
         Assert.Equal(CompletionStatus.Completed, outcome.Status);
     }
@@ -180,8 +181,18 @@ public class OrderCompletionTests {
         var escrow = EscrowReleasing();
         var completion = NewCompletion(db, escrow.Object);
 
-        await completion.CompleteAsync(OrderNumber, waitForReturnWindow: true, CancellationToken.None);
-        var again = await completion.CompleteAsync(OrderNumber, waitForReturnWindow: false, CancellationToken.None);
+        await completion.CompleteAsync(
+            OrderNumber,
+            waitForReturnWindow: true,
+            LifecycleActor.System,
+            CancellationToken.None
+        );
+        var again = await completion.CompleteAsync(
+            OrderNumber,
+            waitForReturnWindow: false,
+            LifecycleActor.System,
+            CancellationToken.None
+        );
 
         Assert.Equal(CompletionStatus.AlreadyCompleted, again.Status);
         Assert.Single(db.EscrowReleases);
@@ -198,7 +209,12 @@ public class OrderCompletionTests {
             .ReturnsAsync(StepResult.Ok());
         var completion = NewCompletion(db, escrow.Object);
 
-        var outcome = await completion.CompleteAsync(OrderNumber, waitForReturnWindow: true, CancellationToken.None);
+        var outcome = await completion.CompleteAsync(
+            OrderNumber,
+            waitForReturnWindow: true,
+            LifecycleActor.System,
+            CancellationToken.None
+        );
 
         Assert.Equal(CompletionStatus.Completed, outcome.Status);
         Assert.False(outcome.EscrowReleased);
@@ -222,7 +238,7 @@ public class OrderCompletionTests {
             .ThrowsAsync(new RpcException(new Status(StatusCode.FailedPrecondition, "escrow is REFUNDED")));
 
         await NewCompletion(db, escrow.Object)
-            .CompleteAsync(OrderNumber, waitForReturnWindow: true, CancellationToken.None);
+            .CompleteAsync(OrderNumber, waitForReturnWindow: true, LifecycleActor.System, CancellationToken.None);
 
         var release = await db.EscrowReleases.SingleAsync();
         Assert.Null(release.ReleasedAt);
@@ -235,7 +251,7 @@ public class OrderCompletionTests {
         using var db = NewDbContext();
 
         var outcome = await NewCompletion(db, EscrowReleasing().Object)
-            .CompleteAsync("ORD-NOBODY", waitForReturnWindow: false, CancellationToken.None);
+            .CompleteAsync("ORD-NOBODY", waitForReturnWindow: false, LifecycleActor.System, CancellationToken.None);
 
         Assert.Equal(CompletionStatus.NoSuchOrder, outcome.Status);
     }

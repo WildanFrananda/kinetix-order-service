@@ -92,3 +92,36 @@ principal it names, or `ReturnGoodsReceived`, which refunds. Infrastructure now 
 published contract and nothing else, and the mesh probes (`handshake_matrix.sh`, `trace_test.sh`,
 `money_roundtrip.sh`) resolve methods through it. A new call from another service needs its entry before it
 ships, or order answers `PermissionDenied`.
+
+## Every transition is in the lifecycle log
+
+`order_lifecycle_events` holds one row for each status an order reaches and each step of its return —
+from and to status, the return number and status, who did it (buyer, merchant, driver, admin or the
+system, with the principal) and when — written in the same transaction as the change. Change a status only
+through `LifecycleLog` (`RecordPlaced`, `ChangeStatus`, `RecordReturnOpened`, `ChangeReturnStatus`); never
+assign `Status` directly. Moving an order to the status it already has is not a transition and logs nothing,
+which is what a failed checkout meets after the saga has already cancelled the order.
+
+Postgres enforces both properties. Deferred constraint triggers on `orders` and `order_returns` refuse to
+commit a status that has no event of its own in the same transaction, so a new code path that forgets the
+log fails at its first commit rather than leaving a hole; triggers on the log refuse `UPDATE`, `DELETE` and
+`TRUNCATE`. The migration that created the log wrote one `BASELINE` event for every order and return that
+already existed: it says what the log first saw, at the time it first saw it, and claims no transition.
+
+The log is the notary's evidence of the order lifecycle (notary PLAN decision 37), read through
+`order.v1.OrderLifecycleService/LifecycleEventsSince`. Its cursor is `(transaction_id xid8, sequence)` and it
+serves only rows below `pg_snapshot_xmin(pg_current_snapshot())`: a row whose transaction commits after a
+later one cannot be skipped. A cursor on a value written before commit loses exactly that row — reproduced on
+2026-10-16 — and `OrdersChangedSince` keys on `updated_at`, set before commit, so search's read model is
+exposed to the same loss. The notary needs `notary@order.v1.OrderLifecycleService/LifecycleEventsSince` on
+the allow list.
+
+## The suite runs in CI, against Postgres
+
+Until 2026-10-16 neither CI ran `dotnet test`. Both now do, with a Postgres service and
+`KINETIX_TEST_POSTGRES`. The Postgres tests share one migrated database through the `postgres` xunit
+collection (`PostgresDatabase`, `PostgresCollection`), which also runs them one at a time: run separately
+against a fresh database, each class migrated it at once and they failed on each other's half-built schema.
+They still return early without `KINETIX_TEST_POSTGRES`, so `PostgresIsConfiguredTests` fails when `CI` is set
+and the database is not. Locally, start a Postgres on a free port and set the variable; a port another
+container already holds makes the tests talk to that database instead.

@@ -4,6 +4,7 @@ using Kinetix.OrderService.DTOs.Responses;
 using Kinetix.OrderService.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Controllers;
 
@@ -15,7 +16,22 @@ public class OrderCompletionController(IOrderCompletion completion) : Controller
 
     [HttpPost("{orderNumber}/complete")]
     public async Task<IActionResult> Complete(string orderNumber, CancellationToken cancellationToken) {
-        var outcome = await _completion.CompleteAsync(orderNumber, waitForReturnWindow: false, cancellationToken);
+        var admin = User.FindFirst("sub")?.Value
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrWhiteSpace(admin)) {
+            return Unauthorized(new {
+                error = "PRINCIPAL_UNKNOWN",
+                message = "the token names no principal, so the completion could not be attributed",
+            });
+        }
+
+        var outcome = await _completion.CompleteAsync(
+            orderNumber,
+            waitForReturnWindow: false,
+            LifecycleActor.Admin(admin),
+            cancellationToken
+        );
 
         return outcome.Status switch {
             CompletionStatus.Completed =>
@@ -25,7 +41,10 @@ public class OrderCompletionController(IOrderCompletion completion) : Controller
                 message = "the order is already complete; its escrow release is retried until payment accepts it",
             }),
             CompletionStatus.NoSuchOrder => NotFound(new { error = "ORDER_NOT_FOUND", message = outcome.Detail }),
-            CompletionStatus.ReturnUnresolved => Conflict(new { error = "RETURN_UNRESOLVED", message = outcome.Detail }),
+            CompletionStatus.ReturnUnresolved => Conflict(new {
+                error = "RETURN_UNRESOLVED",
+                message = outcome.Detail,
+            }),
             _ => Conflict(new { error = "ORDER_NOT_DELIVERED", message = outcome.Detail }),
         };
     }

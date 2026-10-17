@@ -16,6 +16,7 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
     public DbSet<EscrowRelease> EscrowReleases => Set<EscrowRelease>();
     public DbSet<OrderReturn> OrderReturns => Set<OrderReturn>();
     public DbSet<OrderReturnLine> OrderReturnLines => Set<OrderReturnLine>();
+    public DbSet<OrderLifecycleEvent> OrderLifecycleEvents => Set<OrderLifecycleEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) {
         base.OnModelCreating(modelBuilder);
@@ -50,6 +51,26 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
 
         modelBuilder.Entity<OrderReturnLine>(entity => {
             entity.HasIndex(e => e.ReturnNumber);
+        });
+
+        modelBuilder.Entity<OrderLifecycleEvent>(entity => {
+            entity.Property(e => e.Sequence).UseIdentityAlwaysColumn();
+
+            entity.Property(e => e.TransactionId)
+                .HasColumnType("xid8")
+                .HasDefaultValueSql("pg_current_xact_id()")
+                .ValueGeneratedOnAdd();
+
+            entity.HasIndex(e => new { e.TransactionId, e.Sequence })
+                .HasDatabaseName("ix_order_lifecycle_events_position");
+
+            entity.HasIndex(e => e.OrderNumber);
+
+            entity.Property(e => e.Kind).HasConversion<string>().HasMaxLength(30);
+            entity.Property(e => e.FromStatus).HasConversion<string>().HasMaxLength(30);
+            entity.Property(e => e.ToStatus).HasConversion<string>().HasMaxLength(30);
+            entity.Property(e => e.ReturnStatus).HasConversion<string>().HasMaxLength(30);
+            entity.Property(e => e.ActorKind).HasConversion<string>().HasMaxLength(20);
         });
 
         modelBuilder.Entity<OrderEntity>(entity => {

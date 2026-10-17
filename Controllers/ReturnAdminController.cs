@@ -8,6 +8,7 @@ using Kinetix.OrderService.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Kinetix.OrderService.Application.Lifecycle;
 
 namespace Kinetix.OrderService.Controllers;
 
@@ -55,7 +56,22 @@ public class ReturnAdminController(OrderDbContext dbContext, IReturnRejection re
         [FromBody] RejectReturnRequest request,
         CancellationToken cancellationToken
     ) {
-        var status = await _rejection.RejectAsync(returnNumber, request.Reason ?? string.Empty, cancellationToken);
+        var admin = User.FindFirst("sub")?.Value
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrWhiteSpace(admin)) {
+            return Unauthorized(new {
+                error = "PRINCIPAL_UNKNOWN",
+                message = "the token names no principal, so the rejection could not be attributed",
+            });
+        }
+
+        var status = await _rejection.RejectAsync(
+            returnNumber,
+            request.Reason ?? string.Empty,
+            LifecycleActor.Admin(admin),
+            cancellationToken
+        );
 
         return status switch {
             ReturnRejectionStatus.Rejected => NoContent(),

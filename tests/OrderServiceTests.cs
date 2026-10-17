@@ -104,7 +104,12 @@ public class OrderServiceTests {
         IMerchantStanding? merchants = null
     ) {
         var voucher = new Mock<IVoucherQuotaClient>();
-        voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+        voucher.Setup(c => c.RedeemVoucherAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>()
+        ))
             .ReturnsAsync(StepResult.Ok());
 
         var flash = new Mock<IFlashSaleClient>();
@@ -112,7 +117,12 @@ public class OrderServiceTests {
             .ReturnsAsync(StepResult.Ok());
 
         var stock = new Mock<IStockClient>();
-        stock.Setup(c => c.ReserveStockAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>()))
+        stock.Setup(c => c.ReserveStockAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<int>(),
+            It.IsAny<string>()
+        ))
             .ReturnsAsync(StepResult.Ok());
 
         var escrow = escrowClient ?? AcceptingEscrow().Object;
@@ -265,7 +275,9 @@ public class OrderServiceTests {
         ), Times.Once);
 
         pricing.Verify(p => p.CalculatePriceAsync(
-            It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_INSTANT"),
+            It.IsAny<string?>(),
+            It.IsAny<IReadOnlyList<PriceLine>>(),
+            It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_INSTANT"),
             It.IsAny<string>()
         ), Times.Once);
 
@@ -375,7 +387,9 @@ public class OrderServiceTests {
         );
 
         await Assert.ThrowsAsync<ShippingUnavailableException>(() => orderService.CheckoutAsync(
-            Customer, new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-DOWN"
+            Customer,
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+            "IDEMP-KEY-DOWN"
         ));
 
         Assert.Empty(dbContext.Orders);
@@ -638,7 +652,8 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-DUPLICATE-CHEAPEST"
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+                "IDEMP-KEY-DUPLICATE-CHEAPEST"
             )
         );
 
@@ -662,7 +677,8 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-BLANKTIER"
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+                "IDEMP-KEY-BLANKTIER"
             )
         );
 
@@ -872,6 +888,31 @@ public class OrderServiceTests {
     }
 
     [Fact]
+    public async Task CheckoutAsync_LogsThePlacementAndThePaymentAsTheBuyers() {
+        using var dbContext = GetInMemoryDbContext();
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingAtCatalogPrices().Object, ShippingReturning(RateCardFloor()).Object, AcceptingEscrow().Object
+        );
+
+        await orderService.CheckoutAsync(Customer,
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+            "IDEMP-KEY-LIFECYCLE"
+        );
+
+        var steps = await dbContext.OrderLifecycleEvents.AsNoTracking().OrderBy(e => e.Sequence).ToListAsync();
+        Assert.Equal(
+            [
+                ((OrderStatus?)null, (OrderStatus?)OrderStatus.PENDING_PAYMENT),
+                (OrderStatus.PENDING_PAYMENT, OrderStatus.PAID),
+            ],
+            steps.Select(e => (e.FromStatus, e.ToStatus))
+        );
+        Assert.All(steps, e => Assert.Equal(LifecycleActorKind.BUYER, e.ActorKind));
+        Assert.All(steps, e => Assert.Equal(Customer, e.ActorPrincipalId));
+        Assert.All(steps, e => Assert.Equal(Customer, e.BuyerPrincipalId));
+    }
+
+    [Fact]
     public async Task CheckoutAsync_WhenEveryItemSharesOneMerchant_ProceedsAsBefore() {
         using var dbContext = GetInMemoryDbContext();
         var escrow = AcceptingEscrow();
@@ -927,7 +968,8 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<CartItemsHaveNoMerchantException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-NOMERCHANT"
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+                "IDEMP-KEY-NOMERCHANT"
             )
         );
 
@@ -1000,7 +1042,10 @@ public class OrderServiceTests {
         var pricing = new Mock<IPricingClient>();
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
-                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), It.IsAny<string>()))
+                It.IsAny<string?>(),
+                It.IsAny<IReadOnlyList<PriceLine>>(),
+                It.IsAny<ShippingJourney?>(),
+                It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 9000m, 0m, 12000m, 192000m, TwoOfProductOne));
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
@@ -1008,7 +1053,8 @@ public class OrderServiceTests {
 
         var refusal = await Assert.ThrowsAsync<ShippingFeeContradictedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-CONTRADICT"));
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+                "IDEMP-KEY-CONTRADICT"));
 
         Assert.Equal(12000m, refusal.PricingFinal);
         Assert.Empty(dbContext.Orders);
@@ -1023,7 +1069,10 @@ public class OrderServiceTests {
         var pricing = new Mock<IPricingClient>();
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
-                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), It.IsAny<string>()))
+                It.IsAny<string?>(),
+                It.IsAny<IReadOnlyList<PriceLine>>(),
+                It.IsAny<ShippingJourney?>(),
+                It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 9000m, 12000m, -3000m, 177000m, TwoOfProductOne));
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
@@ -1031,7 +1080,8 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<ShippingFeeContradictedException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-NEGATIVE"));
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+                "IDEMP-KEY-NEGATIVE"));
 
         Assert.Empty(dbContext.Orders);
     }
@@ -1044,14 +1094,18 @@ public class OrderServiceTests {
         var pricing = new Mock<IPricingClient>();
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
-                "FREE_SHIP", It.IsAny<IReadOnlyList<PriceLine>>(), It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_REGULAR"), It.IsAny<string>()))
+                "FREE_SHIP",
+                It.IsAny<IReadOnlyList<PriceLine>>(),
+                It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_REGULAR"),
+                It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 0m, 9000m, 9000m, 0m, 200000m, TwoOfProductOne));
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
             ShippingReturning(RateCardFloor()).Object, escrow.Object);
 
         var result = await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "FREE_SHIP", null, Buyer, BuyerPhone), "IDEMP-KEY-FREESHIP");
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "FREE_SHIP", null, Buyer, BuyerPhone),
+            "IDEMP-KEY-FREESHIP");
 
         Assert.Equal(9000m, result.BaseShippingFee);
         Assert.Equal(0m, result.FinalShippingFee);
@@ -1089,11 +1143,22 @@ public class OrderServiceTests {
         QuotingFromTheRateCard(pricing);
         var shipping = ShippingReturning(RateCardFloor());
 
-        pricing.Setup(p => p.CalculatePriceAsync("DISCOUNT10", It.IsAny<IReadOnlyList<PriceLine>>(), It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_INSTANT"), It.IsAny<string>()))
+        pricing.Setup(p => p.CalculatePriceAsync(
+            "DISCOUNT10",
+            It.IsAny<IReadOnlyList<PriceLine>>(),
+            It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_INSTANT"),
+            It.IsAny<string>()
+        ))
             .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 15000m, 0m, 15000m, 195000m, TwoOfProductOne));
 
         var orderService = NewOrderService(dbContext, cartService.Object, pricing.Object, shipping.Object);
-        var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "DISCOUNT10", "KINETIX_INSTANT", Buyer, BuyerPhone);
+        var request = new CheckoutRequest(
+            "Jl. Sudirman No. 45, Jakarta",
+            "DISCOUNT10",
+            "KINETIX_INSTANT",
+            Buyer,
+            BuyerPhone
+        );
 
         var result = await orderService.CheckoutAsync(Customer, request, "IDEMP-KEY-12345");
 
@@ -1108,7 +1173,15 @@ public class OrderServiceTests {
         Assert.Equal(0.0, result.DistanceKm);
 
         cartService.Verify(s => s.ClearCartAsync(Customer), Times.Once);
-        pricing.Verify(p => p.CalculatePriceAsync("DISCOUNT10", It.IsAny<IReadOnlyList<PriceLine>>(), It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_INSTANT"), It.IsAny<string>()), Times.Once);
+        pricing.Verify(
+            p => p.CalculatePriceAsync(
+                "DISCOUNT10",
+                It.IsAny<IReadOnlyList<PriceLine>>(),
+                It.Is<ShippingJourney?>(j => j!.ServiceTier == "KINETIX_INSTANT"),
+                It.IsAny<string>()
+            ),
+            Times.Once
+        );
     }
 
     [Fact]
@@ -1118,14 +1191,29 @@ public class OrderServiceTests {
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
             "OTHER-SHOP", It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), Merchant
-        )).ReturnsAsync(new PriceCalculationResult(200000m, 0m, 15000m, 0m, 15000m, 215000m, TwoOfProductOne, AppliedVoucher: null));
+        )).ReturnsAsync(new PriceCalculationResult(
+            200000m,
+            0m,
+            15000m,
+            0m,
+            15000m,
+            215000m,
+            TwoOfProductOne,
+            AppliedVoucher: null
+        ));
         var voucher = new Mock<IVoucherQuotaClient>();
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
             ShippingReturning(RateCardFloor()).Object,
             voucherClient: voucher.Object
         );
-        var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "OTHER-SHOP", "KINETIX_INSTANT", Buyer, BuyerPhone);
+        var request = new CheckoutRequest(
+            "Jl. Sudirman No. 45, Jakarta",
+            "OTHER-SHOP",
+            "KINETIX_INSTANT",
+            Buyer,
+            BuyerPhone
+        );
 
         var result = await orderService.CheckoutAsync(Customer, request, "IDEMP-VOUCHER-ELSEWHERE");
 
@@ -1144,16 +1232,36 @@ public class OrderServiceTests {
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
             "SHOP10", It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), Merchant
-        )).ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 15000m, 0m, 15000m, 195000m, TwoOfProductOne, AppliedVoucher: "SHOP10"));
+        )).ReturnsAsync(new PriceCalculationResult(
+            200000m,
+            20000m,
+            15000m,
+            0m,
+            15000m,
+            195000m,
+            TwoOfProductOne,
+            AppliedVoucher: "SHOP10"
+        ));
         var voucher = new Mock<IVoucherQuotaClient>();
-        voucher.Setup(c => c.RedeemVoucherAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+        voucher.Setup(c => c.RedeemVoucherAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>()
+        ))
             .ReturnsAsync(StepResult.Ok());
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
             ShippingReturning(RateCardFloor()).Object,
             voucherClient: voucher.Object
         );
-        var request = new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", "SHOP10", "KINETIX_INSTANT", Buyer, BuyerPhone);
+        var request = new CheckoutRequest(
+            "Jl. Sudirman No. 45, Jakarta",
+            "SHOP10",
+            "KINETIX_INSTANT",
+            Buyer,
+            BuyerPhone
+        );
 
         var result = await orderService.CheckoutAsync(Customer, request, "IDEMP-VOUCHER-HERE");
 
@@ -1193,7 +1301,10 @@ public class OrderServiceTests {
         using var dbContext = GetInMemoryDbContext();
         var unknown = new Mock<IMerchantStanding>();
         unknown.Setup(m => m.MaySellAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new MerchantStandingUnknownException(Merchant, new InvalidOperationException("identity is down")));
+            .ThrowsAsync(new MerchantStandingUnknownException(
+                Merchant,
+                new InvalidOperationException("identity is down")
+            ));
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, PricingPassingShippingThrough().Object,
             ShippingReturning(RateCardFloor()).Object,
@@ -1257,7 +1368,8 @@ public class OrderServiceTests {
             pricing.Object, ShippingReturning(farAway).Object);
 
         var result = await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-DISTANCEQUOTED");
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+            "IDEMP-KEY-DISTANCEQUOTED");
 
         Assert.Equal(660.0, result.DistanceKm);
         Assert.Equal(58500m, result.BaseShippingFee);
@@ -1309,7 +1421,10 @@ public class OrderServiceTests {
         var pricing = new Mock<IPricingClient>();
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
-                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), It.IsAny<string>()))
+                It.IsAny<string?>(),
+                It.IsAny<IReadOnlyList<PriceLine>>(),
+                It.IsAny<ShippingJourney?>(),
+                It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 0m, 9000m, 0m, 9000m, 1m, TwoOfProductOne));
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
@@ -1317,7 +1432,8 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<OrderAmountsUnchargeableException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-TOTALGAP"));
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+                "IDEMP-KEY-TOTALGAP"));
 
         Assert.Empty(dbContext.Orders);
         Assert.Empty(dbContext.CheckoutSagas);
@@ -1334,7 +1450,10 @@ public class OrderServiceTests {
         var pricing = new Mock<IPricingClient>();
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
-                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), It.IsAny<string>()))
+                It.IsAny<string?>(),
+                It.IsAny<IReadOnlyList<PriceLine>>(),
+                It.IsAny<ShippingJourney?>(),
+                It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 300000m, 9000m, 0m, 9000m, -91000m, TwoOfProductOne));
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object,
@@ -1342,7 +1461,8 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<OrderAmountsUnchargeableException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-OVERDISCOUNT"));
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+                "IDEMP-KEY-OVERDISCOUNT"));
 
         Assert.Empty(dbContext.Orders);
         escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
@@ -1358,7 +1478,10 @@ public class OrderServiceTests {
         var pricing = new Mock<IPricingClient>();
         QuotingFromTheRateCard(pricing);
         pricing.Setup(p => p.CalculatePriceAsync(
-                It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), It.IsAny<string>()))
+                It.IsAny<string?>(),
+                It.IsAny<IReadOnlyList<PriceLine>>(),
+                It.IsAny<ShippingJourney?>(),
+                It.IsAny<string>()))
             .ReturnsAsync(new PriceCalculationResult(200000m, 20000m, 9000m, 0.996m, 8999.004m,
                 188999.004m, TwoOfProductOne));
 
@@ -1367,7 +1490,8 @@ public class OrderServiceTests {
 
         await Assert.ThrowsAsync<OrderAmountsUnchargeableException>(() =>
             orderService.CheckoutAsync(Customer,
-                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-SUBMINOR"));
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
+                "IDEMP-KEY-SUBMINOR"));
 
         Assert.Empty(dbContext.Orders);
         Assert.Empty(dbContext.CheckoutSagas);

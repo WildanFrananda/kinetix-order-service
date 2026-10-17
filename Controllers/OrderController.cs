@@ -126,7 +126,11 @@ public class OrderController(IOrderService orderService) : ControllerBase {
     }
 
     [HttpGet("my-orders")]
-    public async Task<IActionResult> GetMyOrders([FromQuery] string? status, [FromQuery] int page = 1, [FromQuery] int pageSize = 10) {
+    public async Task<IActionResult> GetMyOrders(
+        [FromQuery] string? status,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10
+    ) {
         if (!TryGetCallerPrincipal(out var customerPrincipalId)) {
             return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }

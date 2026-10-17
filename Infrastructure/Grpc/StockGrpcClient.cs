@@ -12,7 +12,12 @@ public class StockGrpcClient(
     private readonly BinStockService.BinStockServiceClient _client = client;
     private readonly ILogger<StockGrpcClient> _logger = logger;
 
-    public async Task<StepResult> ReserveStockAsync(string merchantPrincipalId, string sku, int quantity, string orderNumber) {
+    public async Task<StepResult> ReserveStockAsync(
+        string merchantPrincipalId,
+        string sku,
+        int quantity,
+        string orderNumber
+    ) {
         try {
             var response = await _client.ReserveStockAsync(new ReserveStockRequest {
                 MerchantPrincipalId = merchantPrincipalId,
@@ -30,7 +35,12 @@ public class StockGrpcClient(
         }
     }
 
-    public async Task<StepResult> ReleaseStockAsync(string merchantPrincipalId, string sku, int quantity, string orderNumber) {
+    public async Task<StepResult> ReleaseStockAsync(
+        string merchantPrincipalId,
+        string sku,
+        int quantity,
+        string orderNumber
+    ) {
         var response = await _client.ReleaseStockAsync(new ReleaseStockRequest {
             MerchantPrincipalId = merchantPrincipalId,
             Sku = sku,

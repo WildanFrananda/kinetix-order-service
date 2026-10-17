@@ -1,4 +1,5 @@
 using System.Reflection;
+using Kinetix.OrderService.Application.Lifecycle;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Application.Returns;
 using Kinetix.OrderService.Controllers;
@@ -16,13 +17,20 @@ using Moq;
 namespace Kinetix.OrderService.Tests;
 
 public class ReturnAdminControllerTests {
+    private const string Admin = "0b6f1c7e-2d4a-4e8b-9c3f-5a1d7e9b2c40";
+
     private static OrderDbContext NewDbContext() =>
         new(new DbContextOptionsBuilder<OrderDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options
         );
 
-    private static OrderReturn Return(string number, ReturnStatus status, int openedDaysAgo, DateTime? nextRefund = null) => new() {
+    private static OrderReturn Return(
+        string number,
+        ReturnStatus status,
+        int openedDaysAgo,
+        DateTime? nextRefund = null
+    ) => new() {
         ReturnNumber = number,
         OrderNumber = $"ORD-{number}",
         MerchantPrincipalId = "3aa957c8-b802-4d58-b9fc-f7b76ce60fa3",
@@ -47,7 +55,9 @@ public class ReturnAdminControllerTests {
 
         var result = await new ReturnAdminController(db, Mock.Of<IReturnRejection>()).NeedsAttention();
 
-        var body = Assert.IsType<List<ReturnNeedingAttentionResponse>>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        var body = Assert.IsType<List<ReturnNeedingAttentionResponse>>(
+            Assert.IsType<OkObjectResult>(result.Result).Value
+        );
         Assert.Equal(["OPEN-OLD", "HALTED", "OPEN-NEW"], body.Select(r => r.ReturnNumber));
     }
 
@@ -60,12 +70,25 @@ public class ReturnAdminControllerTests {
     public async Task ARejectionAnswersWhatHappened(ReturnRejectionStatus status, Type expected) {
         using var db = NewDbContext();
         var rejection = new Mock<IReturnRejection>();
-        rejection.Setup(r => r.RejectAsync("RMA-1", "why", It.IsAny<CancellationToken>())).ReturnsAsync(status);
+        rejection
+            .Setup(r => r.RejectAsync("RMA-1", "why", LifecycleActor.Admin(Admin), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(status);
 
-        var result = await new ReturnAdminController(db, rejection.Object)
-            .Reject("RMA-1", new RejectReturnRequest("why"), CancellationToken.None);
+        var controller = new ReturnAdminController(db, rejection.Object) { ControllerContext = SignedIn.As(Admin) };
+        var result = await controller.Reject("RMA-1", new RejectReturnRequest("why"), CancellationToken.None);
 
         Assert.IsType(expected, result);
+    }
+
+    [Fact]
+    public async Task ARejectionWhoseTokenNamesNobodyIsRefusedBeforeAnythingChanges() {
+        using var db = NewDbContext();
+        var rejection = new Mock<IReturnRejection>(MockBehavior.Strict);
+        var controller = new ReturnAdminController(db, rejection.Object) { ControllerContext = SignedIn.As(null) };
+
+        var result = await controller.Reject("RMA-1", new RejectReturnRequest("why"), CancellationToken.None);
+
+        Assert.IsType<UnauthorizedObjectResult>(result);
     }
 
     [Theory]

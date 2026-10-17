@@ -1,4 +1,5 @@
 using Kinetix.OrderService.Application.Completion;
+using Kinetix.OrderService.Application.Lifecycle;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Controllers;
 using Kinetix.OrderService.DTOs.Responses;
@@ -8,11 +9,27 @@ using Moq;
 namespace Kinetix.OrderService.Tests;
 
 public class OrderCompletionControllerTests {
+    private const string Admin = "0b6f1c7e-2d4a-4e8b-9c3f-5a1d7e9b2c40";
+
     private static async Task<IActionResult> Answer(CompletionOutcome outcome) {
         var completion = new Mock<IOrderCompletion>();
-        completion.Setup(c => c.CompleteAsync("ORD-1", false, It.IsAny<CancellationToken>())).ReturnsAsync(outcome);
+        completion
+            .Setup(c => c.CompleteAsync("ORD-1", false, LifecycleActor.Admin(Admin), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(outcome);
 
-        return await new OrderCompletionController(completion.Object).Complete("ORD-1", CancellationToken.None);
+        var controller = new OrderCompletionController(completion.Object) { ControllerContext = SignedIn.As(Admin) };
+
+        return await controller.Complete("ORD-1", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ACompletionWhoseTokenNamesNobodyIsRefusedBeforeAnythingChanges() {
+        var completion = new Mock<IOrderCompletion>(MockBehavior.Strict);
+        var controller = new OrderCompletionController(completion.Object) { ControllerContext = SignedIn.As(null) };
+
+        var result = await controller.Complete("ORD-1", CancellationToken.None);
+
+        Assert.IsType<UnauthorizedObjectResult>(result);
     }
 
     [Fact]

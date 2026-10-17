@@ -86,7 +86,7 @@ public class OrderGrpcServerService(
             CustomerPrincipalId = order.CustomerPrincipalId ?? string.Empty,
             MerchantPrincipalId = order.MerchantPrincipalId ?? string.Empty,
             DriverPrincipalId = order.DriverPrincipalId ?? string.Empty,
-            Status = MapStatus(order.Status),
+            Status = OrderWireStatus.Of(order.Status),
             Subtotal = ToMoney(order.Subtotal),
             DiscountAmount = ToMoney(order.DiscountAmount),
             ShippingFee = ToMoney(order.FinalShippingFee),
@@ -239,7 +239,7 @@ public class OrderGrpcServerService(
         return new OrderProto.OpenReturnResponse {
             Success = true,
             ReturnNumber = outcome.ReturnNumber,
-            Status = MapReturnStatus(outcome.Status),
+            Status = OrderWireStatus.Of(outcome.Status),
             AlreadyOpen = outcome.AlreadyOpen
         };
     }
@@ -281,7 +281,7 @@ public class OrderGrpcServerService(
         return new OrderProto.ReturnGoodsReceivedResponse {
             Accepted = true,
             AlreadyRecorded = outcome.AlreadyRecorded,
-            Status = MapReturnStatus(outcome.Status)
+            Status = OrderWireStatus.Of(outcome.Status)
         };
     }
 
@@ -311,7 +311,7 @@ public class OrderGrpcServerService(
                 OrderNumber = change.OrderNumber,
                 BuyerPrincipalId = change.BuyerPrincipalId,
                 MerchantPrincipalId = change.MerchantPrincipalId,
-                Status = MapStatus(change.Status.ToString()),
+                Status = OrderWireStatus.Of(change.Status.ToString()),
                 PlacedAt = Timestamp.FromDateTime(change.PlacedAt),
                 UpdatedAt = Timestamp.FromDateTime(change.UpdatedAt)
             };
@@ -335,29 +335,5 @@ public class OrderGrpcServerService(
             };
 
         return response;
-    }
-
-    private static OrderProto.ReturnStatus MapReturnStatus(Domain.Enums.ReturnStatus status) {
-        return status switch {
-            Domain.Enums.ReturnStatus.OPEN => OrderProto.ReturnStatus.Open,
-            Domain.Enums.ReturnStatus.GOODS_RECEIVED => OrderProto.ReturnStatus.GoodsReceived,
-            Domain.Enums.ReturnStatus.RESOLVED => OrderProto.ReturnStatus.Resolved,
-            Domain.Enums.ReturnStatus.REJECTED => OrderProto.ReturnStatus.Rejected,
-            _ => OrderProto.ReturnStatus.Unspecified
-        };
-    }
-
-    private static OrderStatus MapStatus(string status) {
-        return status.ToUpperInvariant() switch {
-            "PENDING_PAYMENT" => OrderStatus.PendingPayment,
-            "PAID" => OrderStatus.Paid,
-            "PROCESSING_FULFILLMENT" => OrderStatus.Packing,
-            "SHIPPED" => OrderStatus.InTransit,
-            "DELIVERED" => OrderStatus.Delivered,
-            "COMPLETED" => OrderStatus.Completed,
-            "CANCELLED" => OrderStatus.Cancelled,
-            "REFUNDED" => OrderStatus.Refunded,
-            _ => OrderStatus.Unspecified
-        };
     }
 }
