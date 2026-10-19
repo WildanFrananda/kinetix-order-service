@@ -28,6 +28,17 @@ public class OrderPoliciesTests {
         Assert.Equal(allowed, result.Succeeded);
     }
 
+    [Theory]
+    [InlineData("admin", true)]
+    [InlineData("operator", false)]
+    [InlineData("merchant", false)]
+    [InlineData("customer", false)]
+    public async Task OnlyAnAdminMayWorkTheSagaQueue(string role, bool allowed) {
+        var result = await Authorization().AuthorizeAsync(Staff(role), null, SagaAdminController.SagaAdminPolicy);
+
+        Assert.Equal(allowed, result.Succeeded);
+    }
+
     [Fact]
     public void CompletingAnOrderRequiresTheMerchantPayoutPolicy() {
         var attribute = typeof(OrderCompletionController).GetCustomAttribute<AuthorizeAttribute>();

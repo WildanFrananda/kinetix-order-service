@@ -67,6 +67,18 @@ public class Order {
     [Column("shipping_quote_basis")]
     public ShippingQuoteBasis ShippingQuoteBasis { get; set; } = ShippingQuoteBasis.CLIENT_SUPPLIED;
 
+    [Column("delivery_latitude")]
+    public double? DeliveryLatitude { get; set; }
+
+    [Column("delivery_longitude")]
+    public double? DeliveryLongitude { get; set; }
+
+    [Column("parcel_weight_grams")]
+    public long? ParcelWeightGrams { get; set; }
+
+    [Column("change_transaction_id")]
+    public ulong ChangeTransactionId { get; set; }
+
     [Required]
     [MaxLength(500)]
     [Column("shipping_address")]

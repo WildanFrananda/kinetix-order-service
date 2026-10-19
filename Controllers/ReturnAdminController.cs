@@ -21,7 +21,7 @@ public class ReturnAdminController(OrderDbContext dbContext, IReturnRejection re
     private readonly IReturnRejection _rejection = rejection;
 
     [HttpGet("needs-attention")]
-    [Authorize(Policy = SagaAdminController.SagaOperatorPolicy)]
+    [Authorize(Policy = SagaAdminController.SagaAdminPolicy)]
     public async Task<ActionResult<List<ReturnNeedingAttentionResponse>>> NeedsAttention(
         [FromQuery] int limit = 50,
         CancellationToken cancellationToken = default

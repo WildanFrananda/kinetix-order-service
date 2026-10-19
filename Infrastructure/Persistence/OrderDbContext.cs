@@ -81,6 +81,14 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
             entity.HasIndex(e => new { e.UpdatedAt, e.OrderNumber })
                 .HasDatabaseName("ix_orders_changed_since");
 
+            entity.Property(e => e.ChangeTransactionId)
+                .HasColumnType("xid8")
+                .HasDefaultValueSql("pg_current_xact_id()")
+                .ValueGeneratedOnAddOrUpdate();
+
+            entity.HasIndex(e => new { e.ChangeTransactionId, e.OrderNumber })
+                .HasDatabaseName("ix_orders_change_feed");
+
             entity.HasIndex(e => e.DeliveredAt)
                 .HasDatabaseName("ix_orders_awaiting_completion")
                 .HasFilter("status = 'DELIVERED'");

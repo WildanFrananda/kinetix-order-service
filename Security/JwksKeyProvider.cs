@@ -3,15 +3,29 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace Kinetix.OrderService.Security;
 
-public sealed class JwksKeyProvider(IConfiguration config, IHttpClientFactory factory, ILogger<JwksKeyProvider> log) {
+public sealed class JwksKeyProvider(
+    IConfiguration config,
+    IHttpClientFactory factory,
+    TimeProvider clock,
+    ILogger<JwksKeyProvider> log
+) {
+    public static readonly TimeSpan UnknownKeyRefreshInterval = TimeSpan.FromSeconds(10);
+
     private readonly string _url = config["IDENTITY_JWKS_URL"]
             ?? throw new InvalidOperationException("IDENTITY_JWKS_URL is required and has no default.");
     private readonly HttpClient _http = factory.CreateClient();
+    private readonly TimeProvider _clock = clock;
     private readonly ILogger<JwksKeyProvider> _log = log;
     private readonly Lock _gate = new();
+    private readonly SemaphoreSlim _refreshing = new(1, 1);
     private Dictionary<string, SecurityKey> _keys = [];
+    private DateTimeOffset? _lastRefresh;
 
     public async Task<int> RefreshAsync(CancellationToken ct = default) {
+        lock (_gate) {
+            _lastRefresh = _clock.GetUtcNow();
+        }
+
         var body = await _http.GetStringAsync(_url, ct);
         using var doc = JsonDocument.Parse(body);
 
@@ -53,14 +67,32 @@ public sealed class JwksKeyProvider(IConfiguration config, IHttpClientFactory fa
             }
         }
 
-        try {
-            RefreshAsync().GetAwaiter().GetResult();
-        } catch (Exception e) {
-            _log.LogWarning(e, "could not refresh identity's JWKS while resolving key {Kid}", kid);
-        }
+        RefreshForUnknownKey(kid);
 
         lock (_gate) {
             return _keys.TryGetValue(kid, out var found) ? new[] { found } : Array.Empty<SecurityKey>();
+        }
+    }
+
+    private void RefreshForUnknownKey(string kid) {
+        _refreshing.Wait();
+
+        try {
+            lock (_gate) {
+                if (_keys.ContainsKey(kid)) {
+                    return;
+                }
+
+                if (_lastRefresh is { } last && _clock.GetUtcNow() - last < UnknownKeyRefreshInterval) {
+                    return;
+                }
+            }
+
+            RefreshAsync().GetAwaiter().GetResult();
+        } catch (Exception e) {
+            _log.LogWarning(e, "could not refresh identity's JWKS while resolving key {Kid}", kid);
+        } finally {
+            _refreshing.Release();
         }
     }
 }

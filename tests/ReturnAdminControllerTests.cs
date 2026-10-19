@@ -92,7 +92,7 @@ public class ReturnAdminControllerTests {
     }
 
     [Theory]
-    [InlineData(nameof(ReturnAdminController.NeedsAttention), SagaAdminController.SagaOperatorPolicy)]
+    [InlineData(nameof(ReturnAdminController.NeedsAttention), SagaAdminController.SagaAdminPolicy)]
     [InlineData(nameof(ReturnAdminController.Reject), OrderPolicies.MerchantPayout)]
     public void EachRouteNamesItsPolicy(string action, string policy) {
         var attribute = typeof(ReturnAdminController).GetMethod(action)!.GetCustomAttribute<AuthorizeAttribute>();

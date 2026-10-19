@@ -226,7 +226,18 @@ builder.Services.AddGrpcClient<Identity.V1.IdentityService.IdentityServiceClient
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
 
+builder.Services.AddGrpcClient<Geo.V1.GeocodingService.GeocodingServiceClient>(options => {
+    options.Address = identityAddress;
+}).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "identity"))
+  .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
+      identityAddress.Host, services.GetRequiredService<KinetixMetrics>()
+  ))
+  .AddInterceptor<RequestIdForwardingInterceptor>()
+  .AddInterceptor<GrpcDeadlineInterceptor>();
+
 builder.Services.AddScoped<IAddressDirectory, IdentityAddressDirectory>();
+builder.Services.AddSingleton(GeocodeDeadline.FromConfiguration(builder.Configuration));
+builder.Services.AddScoped<IAddressGeocoder, IdentityAddressGeocoder>();
 builder.Services.AddScoped<IMerchantStanding, IdentityMerchantStanding>();
 
 builder.Services.AddGrpc(options => {
@@ -236,6 +247,7 @@ builder.Services.AddGrpc(options => {
 builder.Services.AddSingleton<GrpcServerCallMetricsInterceptor>();
 builder.Services.AddSingleton<PeerAuthorizationInterceptor>();
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<JwksKeyProvider>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

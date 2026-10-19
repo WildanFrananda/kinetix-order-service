@@ -9,10 +9,10 @@ using Microsoft.EntityFrameworkCore;
 namespace Kinetix.OrderService.Controllers;
 
 [ApiController]
-[Authorize(Policy = SagaOperatorPolicy)]
+[Authorize(Policy = SagaAdminPolicy)]
 [Route("api/v1/orders/sagas")]
 public class SagaAdminController(OrderDbContext dbContext) : ControllerBase {
-    public const string SagaOperatorPolicy = "SagaOperator";
+    public const string SagaAdminPolicy = "SagaAdmin";
 
     private const int MaxPageSize = 200;
 

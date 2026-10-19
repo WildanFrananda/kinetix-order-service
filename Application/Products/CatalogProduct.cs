@@ -5,5 +5,6 @@ public record CatalogProduct(
     string MerchantPrincipalId,
     string Title,
     decimal UnitPrice,
-    string? CategoryId
+    string? CategoryId,
+    long? WeightGrams
 );
