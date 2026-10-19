@@ -30,7 +30,12 @@ public class CourierDispatchTests {
 
         public Task<MapPoint?> PickupPointAsync(string merchantPrincipalId) => Answer(merchantPrincipalId, Store);
 
-        public Task<MapPoint?> DeliveryPointAsync(string customerPrincipalId) => Answer(customerPrincipalId, Home);
+        public int DeliveryPointCalls { get; private set; }
+
+        public Task<MapPoint?> DeliveryPointAsync(string customerPrincipalId) {
+            DeliveryPointCalls += 1;
+            return Answer(customerPrincipalId, Home);
+        }
 
         private Task<MapPoint?> Answer(string principal, MapPoint point) {
             if (Answers.Count > 0 && !Answers.Peek()) {
@@ -48,6 +53,7 @@ public class CourierDispatchTests {
     private sealed class ScriptedCourier : CourierTelemetryService.CourierTelemetryServiceClient {
         public Queue<Func<DispatchCourierResponse>> Answers { get; } = new();
         public int Calls { get; private set; }
+        public DispatchCourierRequest? LastRequest { get; private set; }
 
         public override AsyncUnaryCall<DispatchCourierResponse> DispatchCourierAsync(
             DispatchCourierRequest request,
@@ -56,6 +62,7 @@ public class CourierDispatchTests {
             CancellationToken cancellationToken = default
         ) {
             Calls += 1;
+            LastRequest = request;
             var answer = Answers.Count > 0 ? Answers.Dequeue() : Dispatched;
 
             return new AsyncUnaryCall<DispatchCourierResponse>(
@@ -162,7 +169,7 @@ public class CourierDispatchTests {
         }
     }
 
-    private static async Task<World> PaidOrder() {
+    private static async Task<World> PaidOrder(MapPoint? dropOff = null, long? parcelWeightGrams = null) {
         var world = new World();
         using var db = world.Db();
         db.Orders.Add(new OrderEntity {
@@ -173,6 +180,9 @@ public class CourierDispatchTests {
             ShippingAddress = "Jl. Cikini Raya No. 99",
             RecipientName = "Sarah",
             RecipientPhone = "0812",
+            DeliveryLatitude = dropOff?.Latitude,
+            DeliveryLongitude = dropOff?.Longitude,
+            ParcelWeightGrams = parcelWeightGrams,
         });
 
         await db.SaveChangesAsync();
@@ -191,6 +201,32 @@ public class CourierDispatchTests {
         Assert.NotNull(row.AwbRecordedAt);
         Assert.Null(row.NextAttemptAt);
         Assert.Equal(Awb, world.Warehouse.LastAwb);
+    }
+
+    [Fact]
+    public async Task AnOrderThatRecordedItsDropOffIsDeliveredThere_WithItsParcelsWeight() {
+        var office = new MapPoint(-6.1900, 106.8230);
+        var world = await PaidOrder(office, 3850);
+
+        await world.Packed();
+
+        var request = Assert.IsType<DispatchCourierRequest>(world.Courier.LastRequest);
+        Assert.Equal(office.Latitude, request.DeliveryPoint.Latitude);
+        Assert.Equal(office.Longitude, request.DeliveryPoint.Longitude);
+        Assert.Equal(3850L, request.ParcelWeightGrams);
+        Assert.Equal(0, world.Directory.DeliveryPointCalls);
+    }
+
+    [Fact]
+    public async Task AnOrderPlacedBeforeDropOffsWereRecordedGoesToTheBuyersProfilePoint_WithNoWeightStated() {
+        var world = await PaidOrder();
+
+        await world.Packed();
+
+        var request = Assert.IsType<DispatchCourierRequest>(world.Courier.LastRequest);
+        Assert.Equal(Home.Latitude, request.DeliveryPoint.Latitude);
+        Assert.Equal(0L, request.ParcelWeightGrams);
+        Assert.Equal(1, world.Directory.DeliveryPointCalls);
     }
 
     [Fact]

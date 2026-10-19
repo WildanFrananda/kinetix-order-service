@@ -34,6 +34,22 @@ public class OrderServiceTests {
             "Cargo is reserved for packages >= 10kg"),
     ]);
 
+    private static readonly MapPoint Store = new(-6.1754, 106.8272);
+
+    private static readonly MapPoint Home = new(-6.2088, 106.8456);
+
+    private static Mock<IAddressDirectory> StoreOnTheMap() {
+        var addresses = new Mock<IAddressDirectory>();
+        addresses.Setup(a => a.PickupPointAsync(It.IsAny<string>())).ReturnsAsync(Store);
+        return addresses;
+    }
+
+    private static Mock<IAddressGeocoder> GeocoderPlacing(AddressPlacement placement) {
+        var geocoder = new Mock<IAddressGeocoder>();
+        geocoder.Setup(g => g.PlaceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(placement);
+        return geocoder;
+    }
+
     private static readonly Dictionary<string, decimal> RateCard = new(StringComparer.Ordinal) {
         ["KINETIX_INSTANT"] = 15000m,
         ["KINETIX_SAMEDAY"] = 12000m,
@@ -101,7 +117,9 @@ public class OrderServiceTests {
         IEscrowClient? escrowClient = null,
         IProductDirectory? catalog = null,
         IVoucherQuotaClient? voucherClient = null,
-        IMerchantStanding? merchants = null
+        IMerchantStanding? merchants = null,
+        IAddressDirectory? addresses = null,
+        IAddressGeocoder? geocoder = null
     ) {
         var voucher = new Mock<IVoucherQuotaClient>();
         voucher.Setup(c => c.RedeemVoucherAsync(
@@ -142,7 +160,10 @@ public class OrderServiceTests {
         );
 
         return new OrderApplicationService(db, cart, catalog ?? CatalogAnswering().Object,
-            merchants ?? MerchantsThatMaySell().Object, pricing, shipping, runner,
+            merchants ?? MerchantsThatMaySell().Object, pricing, shipping,
+            addresses ?? StoreOnTheMap().Object,
+            geocoder ?? GeocoderPlacing(AddressPlacement.Placed(Home)).Object,
+            runner,
             NullLogger<OrderApplicationService>.Instance
         );
     }
@@ -164,14 +185,14 @@ public class OrderServiceTests {
         var catalog = new Mock<IProductDirectory>();
         catalog.Setup(c => c.GetProductAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string sku, CancellationToken _) =>
-                new CatalogProduct(sku, Merchant, "Sample Product", 100000m, null));
+                new CatalogProduct(sku, Merchant, "Sample Product", 100000m, null, 500));
         return catalog;
     }
 
     private static Mock<IProductDirectory> CatalogNaming(params (string Sku, string Merchant)[] products) {
         var catalog = new Mock<IProductDirectory>();
         foreach (var (sku, merchant) in products) {
-            var answer = new CatalogProduct(sku, merchant, sku, 100000m, null);
+            var answer = new CatalogProduct(sku, merchant, sku, 100000m, null, 500);
             catalog.Setup(c => c.GetProductAsync(sku, It.IsAny<CancellationToken>())).ReturnsAsync(answer);
         }
         return catalog;
@@ -284,7 +305,7 @@ public class OrderServiceTests {
         Assert.Equal(15000m, result.BaseShippingFee);
         Assert.Equal(15000m, result.FinalShippingFee);
         Assert.Equal("KINETIX_INSTANT", result.ShippingServiceTier);
-        Assert.Equal("TIER_FLOOR", result.ShippingQuoteBasis);
+        Assert.Equal("DISTANCE_QUOTED", result.ShippingQuoteBasis);
     }
 
     [Fact]
@@ -321,26 +342,175 @@ public class OrderServiceTests {
     }
 
     [Fact]
-    public async Task CheckoutAsync_AsksMatchingAQuestionThatCarriesNoLocationClaim() {
+    public async Task CheckoutAsync_AsksMatchingAboutTheStoreToTheGeocodedAddress_ForTheWeighedParcel() {
         using var dbContext = GetInMemoryDbContext();
         var shipping = ShippingReturning(RateCardFloor());
+        var pricing = PricingPassingShippingThrough();
 
-        var orderService = NewOrderService(
-            dbContext,
-            CartWithOneItem().Object,
-            PricingPassingShippingThrough().Object,
-            shipping.Object
-        );
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object, pricing.Object, shipping.Object);
 
         await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-PROBE"
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-ROUTE"
         );
 
         shipping.Verify(c => c.EstimateShippingOptionsAsync(
-            ShippingRateCardProbe.Latitude, ShippingRateCardProbe.Longitude,
-            ShippingRateCardProbe.Latitude, ShippingRateCardProbe.Longitude,
-            ShippingRateCardProbe.WeightGrams, It.IsAny<string>()
+            Store.Latitude, Store.Longitude, Home.Latitude, Home.Longitude, 1000L, Merchant
         ), Times.Once);
+        pricing.Verify(p => p.QuoteShippingAsync(
+            It.Is<IReadOnlyList<ShippingJourney>>(journeys => journeys.All(j => j.TotalWeightGrams == 1000L))
+        ), Times.Once);
+
+        var order = Assert.Single(dbContext.Orders);
+        Assert.Equal(Home.Latitude, order.DeliveryLatitude);
+        Assert.Equal(Home.Longitude, order.DeliveryLongitude);
+        Assert.Equal(1000L, order.ParcelWeightGrams);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WeighsEveryLine_ByItsOwnWeightAndQuantity() {
+        using var dbContext = GetInMemoryDbContext();
+        var shipping = ShippingReturning(RateCardFloor());
+        var cartService = new Mock<ICartService>();
+        var cart = new CustomerCart(Customer);
+        cart.Items.Add(new CartItem {
+            ProductId = "LIGHT-1", ProductTitle = "Light", UnitPrice = 100000m, Quantity = 1, MerchantPrincipalId = Merchant
+        });
+        cart.Items.Add(new CartItem {
+            ProductId = "HEAVY-3", ProductTitle = "Heavy", UnitPrice = 100000m, Quantity = 3, MerchantPrincipalId = Merchant
+        });
+        cartService.Setup(c => c.GetCartAsync(Customer)).ReturnsAsync(cart);
+
+        var catalog = new Mock<IProductDirectory>();
+        catalog.Setup(c => c.GetProductAsync("LIGHT-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CatalogProduct("LIGHT-1", Merchant, "Light", 100000m, null, 250));
+        catalog.Setup(c => c.GetProductAsync("HEAVY-3", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CatalogProduct("HEAVY-3", Merchant, "Heavy", 100000m, null, 1200));
+
+        var pricing = new Mock<IPricingClient>();
+        QuotingFromTheRateCard(pricing);
+        pricing.Setup(p => p.CalculatePriceAsync(
+            It.IsAny<string?>(), It.IsAny<IReadOnlyList<PriceLine>>(), It.IsAny<ShippingJourney?>(), It.IsAny<string>()
+        )).ReturnsAsync((string? _, IReadOnlyList<PriceLine> lines, ShippingJourney? journey, string _) => {
+            decimal fee = journey is null ? 0m : RateCard.GetValueOrDefault(journey.ServiceTier);
+            decimal subtotal = lines.Sum(l => l.UnitPrice * l.Quantity);
+            return new PriceCalculationResult(subtotal, 0m, fee, 0m, fee, subtotal + fee, EachLineAtItsOwnPrice(lines));
+        });
+
+        var orderService = NewOrderService(dbContext, cartService.Object, pricing.Object, shipping.Object, catalog: catalog.Object);
+
+        await orderService.CheckoutAsync(Customer,
+            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-WEIGHTS"
+        );
+
+        shipping.Verify(c => c.EstimateShippingOptionsAsync(
+            It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(), 3850L, Merchant
+        ), Times.Once);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_RefusesAProductWithNoWeight_BeforeAskingForAQuote() {
+        using var dbContext = GetInMemoryDbContext();
+        var shipping = ShippingReturning(RateCardFloor());
+        var catalog = new Mock<IProductDirectory>();
+        catalog.Setup(c => c.GetProductAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string sku, CancellationToken _) => new CatalogProduct(sku, Merchant, "Unweighed", 100000m, null, null));
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, shipping.Object, catalog: catalog.Object);
+
+        var refusal = await Assert.ThrowsAsync<ProductWeightUnknownException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-UNWEIGHED"
+            )
+        );
+
+        Assert.Equal(["PRODUCT-01"], refusal.ProductIds);
+        Assert.Empty(dbContext.Orders);
+        shipping.Verify(c => c.EstimateShippingOptionsAsync(
+            It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<long>(), It.IsAny<string>()
+        ), Times.Never);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_RefusesWhenTheMerchantsStoreHasNoPointOnTheMap() {
+        using var dbContext = GetInMemoryDbContext();
+        var unplaced = new Mock<IAddressDirectory>();
+        unplaced.Setup(a => a.PickupPointAsync(It.IsAny<string>())).ReturnsAsync((MapPoint?)null);
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, ShippingReturning(RateCardFloor()).Object, addresses: unplaced.Object);
+
+        await Assert.ThrowsAsync<MerchantStoreUnplacedException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-NOSTORE"
+            )
+        );
+
+        Assert.Empty(dbContext.Orders);
+    }
+
+    [Theory]
+    [InlineData(AddressPlacementFailure.NotFound)]
+    [InlineData(AddressPlacementFailure.Ambiguous)]
+    [InlineData(AddressPlacementFailure.OutOfServiceArea)]
+    [InlineData(AddressPlacementFailure.Insufficient)]
+    [InlineData(AddressPlacementFailure.TooVague)]
+    public async Task CheckoutAsync_RefusesAnAddressIdentityCannotPlace_SayingWhy(AddressPlacementFailure failure) {
+        using var dbContext = GetInMemoryDbContext();
+        var shipping = ShippingReturning(RateCardFloor());
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, shipping.Object,
+            geocoder: GeocoderPlacing(AddressPlacement.Refused(failure, "identity's reason")).Object);
+
+        var refusal = await Assert.ThrowsAsync<ShippingAddressUnplacedException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Somewhere", null, null, Buyer, BuyerPhone), "IDEMP-KEY-UNPLACED"
+            )
+        );
+
+        Assert.Equal(failure, refusal.Failure);
+        Assert.Empty(dbContext.Orders);
+        shipping.Verify(c => c.EstimateShippingOptionsAsync(
+            It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(), It.IsAny<double>(),
+            It.IsAny<long>(), It.IsAny<string>()
+        ), Times.Never);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_WhenTheAddressCannotBeLookedUp_SaysSoRatherThanBlamingTheAddress() {
+        using var dbContext = GetInMemoryDbContext();
+        var geocoder = new Mock<IAddressGeocoder>();
+        geocoder.Setup(g => g.PlaceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new AddressPlacementUnavailableException("the geocoder is down"));
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, ShippingReturning(RateCardFloor()).Object, geocoder: geocoder.Object);
+
+        await Assert.ThrowsAsync<AddressPlacementUnavailableException>(() =>
+            orderService.CheckoutAsync(Customer,
+                new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-GEODOWN"
+            )
+        );
+
+        Assert.Empty(dbContext.Orders);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_RefusesABlankShippingAddress_BeforeAnythingIsAsked() {
+        using var dbContext = GetInMemoryDbContext();
+        var geocoder = GeocoderPlacing(AddressPlacement.Placed(Home));
+
+        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
+            PricingPassingShippingThrough().Object, ShippingReturning(RateCardFloor()).Object, geocoder: geocoder.Object);
+
+        var refusal = await Assert.ThrowsAsync<RecipientMissingException>(() =>
+            orderService.CheckoutAsync(Customer, new CheckoutRequest("  ", null, null, Buyer, BuyerPhone), "IDEMP-KEY-BLANK")
+        );
+
+        Assert.Equal("shippingAddress", refusal.Field);
+        geocoder.Verify(g => g.PlaceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -400,7 +570,7 @@ public class OrderServiceTests {
     }
 
     [Fact]
-    public async Task CheckoutAsync_WhenEveryTierComesBackUnavailable_IsAFaultNotAVerdictAboutThisDelivery() {
+    public async Task CheckoutAsync_WhenEveryTierComesBackUnavailable_IsRefusedAsNotServiceable() {
         using var dbContext = GetInMemoryDbContext();
         var escrow = AcceptingEscrow();
 
@@ -421,7 +591,7 @@ public class OrderServiceTests {
             escrow.Object
         );
 
-        var refusal = await Assert.ThrowsAsync<ShippingQuoteMalformedException>(() =>
+        var refusal = await Assert.ThrowsAsync<ShippingNotServiceableException>(() =>
             orderService.CheckoutAsync(
                 Customer,
                 new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone),
@@ -429,8 +599,7 @@ public class OrderServiceTests {
             )
         );
 
-        Assert.Contains("KINETIX_REGULAR: Distance exceeds 500km limit", refusal.Fault);
-        Assert.Contains("0 km", refusal.Fault);
+        Assert.Contains("KINETIX_REGULAR: Distance exceeds 500km limit", refusal.Reasons);
         Assert.Empty(dbContext.Orders);
         escrow.Verify(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()
@@ -984,7 +1153,7 @@ public class OrderServiceTests {
     }
 
     [Fact]
-    public async Task CheckoutAsync_WhenTheRequestedTierIsUnavailable_RefusesWithoutRepeatingTheRateCardAsAFact() {
+    public async Task CheckoutAsync_WhenTheRequestedTierIsUnavailable_RefusesWithTheFleetsReasonForThisParcel() {
         using var dbContext = GetInMemoryDbContext();
 
         var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
@@ -999,8 +1168,8 @@ public class OrderServiceTests {
         Assert.Equal("Cargo is reserved for packages >= 10kg", refusal.RateCardReason);
         Assert.Contains("KINETIX_REGULAR", refusal.AvailableTiers);
 
-        Assert.Contains("could not be established", refusal.Message);
-        Assert.Contains("0 km and 0 kg", refusal.Message);
+        Assert.Contains("could not be established for this parcel on this route", refusal.Message);
+        Assert.Contains("Cargo is reserved for packages >= 10kg", refusal.Message);
         Assert.Empty(dbContext.Orders);
     }
 
@@ -1397,20 +1566,6 @@ public class OrderServiceTests {
 
         Assert.Equal(660.0, result.DistanceKm);
         Assert.Equal("DISTANCE_QUOTED", result.ShippingQuoteBasis);
-    }
-
-    [Fact]
-    public async Task CheckoutAsync_WhenTheQuoteIsTheProbeFloor_StillRecordsTierFloor() {
-        using var dbContext = GetInMemoryDbContext();
-
-        var orderService = NewOrderService(dbContext, CartWithOneItem().Object,
-            PricingPassingShippingThrough().Object, ShippingReturning(RateCardFloor()).Object);
-
-        var result = await orderService.CheckoutAsync(Customer,
-            new CheckoutRequest("Jl. Sudirman No. 45, Jakarta", null, null, Buyer, BuyerPhone), "IDEMP-KEY-STILLFLOOR");
-
-        Assert.Equal(0.0, result.DistanceKm);
-        Assert.Equal("TIER_FLOOR", result.ShippingQuoteBasis);
     }
 
     [Fact]

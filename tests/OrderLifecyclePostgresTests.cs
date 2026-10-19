@@ -273,7 +273,19 @@ public class OrderLifecyclePostgresTests {
             await migrator.MigrateAsync(MigrationBeforeTheLog);
 
             var orderNumber = AnOrderNumber("BASELINE");
-            db.Orders.Add(AnOrder(orderNumber, OrderStatus.DELIVERED));
+            await db.Database.ExecuteSqlInterpolatedAsync($@"
+                INSERT INTO orders (
+                    id, order_number, customer_principal_id, merchant_principal_id, status,
+                    subtotal, discount_amount, final_total, shipping_service_tier, base_shipping_fee,
+                    shipping_discount, final_shipping_fee, distance_km, shipping_quote_basis,
+                    shipping_address, recipient_name, recipient_phone, created_at, updated_at
+                )
+                VALUES (
+                    {Guid.NewGuid()}, {orderNumber}, {Buyer}, {Merchant}, 'DELIVERED',
+                    0, 0, 0, 'KINETIX_REGULAR', 0,
+                    0, 0, 0, 'CLIENT_SUPPLIED',
+                    'Jl. Cikini Raya No. 99', 'Sarah', '0812', now(), now()
+                )");
             db.OrderReturns.Add(new OrderReturn {
                 ReturnNumber = "RMA-BASELINE-1",
                 OrderNumber = orderNumber,
@@ -299,9 +311,10 @@ public class OrderLifecyclePostgresTests {
 
             await migrator.MigrateAsync(MigrationBeforeTheLog);
 
-            var order = await db.Orders.SingleAsync(o => o.OrderNumber == orderNumber);
-            order.Status = OrderStatus.COMPLETED;
-            await db.SaveChangesAsync();
+            var completed = await db.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE orders SET status = 'COMPLETED' WHERE order_number = {orderNumber}"
+            );
+            Assert.Equal(1, completed);
         } finally {
             NpgsqlConnection.ClearAllPools();
 

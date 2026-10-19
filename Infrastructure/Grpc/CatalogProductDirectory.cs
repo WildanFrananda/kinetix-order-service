@@ -52,7 +52,8 @@ public class CatalogProductDirectory(
             MerchantPrincipalId: product.MerchantPrincipalId,
             Title: product.Title,
             UnitPrice: product.Price.AmountMinor / MinorPerMajor,
-            CategoryId: categoryId
+            CategoryId: categoryId,
+            WeightGrams: product.HasWeightGrams ? product.WeightGrams : null
         );
     }
 }

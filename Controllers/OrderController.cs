@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Exceptions;
 using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Application.Results;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.DTOs.Requests;
 using Kinetix.OrderService.DTOs.Responses;
@@ -66,7 +67,6 @@ public class OrderController(IOrderService orderService) : ControllerBase {
                 requestedTier = ex.RequestedTier,
                 availableTiers = ex.AvailableTiers,
                 rateCardReason = ex.RateCardReason,
-                basis = ShippingRateCardProbe.AvailabilityBasis,
             });
         } catch (ShippingTierUnknownException ex) {
             return BadRequest(new {
@@ -122,8 +122,67 @@ public class OrderController(IOrderService orderService) : ControllerBase {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
                 error = "CATALOG_UNAVAILABLE", productId = ex.ProductId, message = ex.Message
             });
+        } catch (ProductWeightUnknownException ex) {
+            return UnprocessableEntity(new {
+                error = "PRODUCT_WEIGHT_UNKNOWN",
+                productIds = ex.ProductIds,
+                message = "a product in this cart has no weight, so its shipping cannot be priced and "
+                        + "this order was not placed. Nothing has been charged or reserved. The "
+                        + "merchant has to set the product's weight.",
+            });
+        } catch (MerchantStoreUnplacedException) {
+            return UnprocessableEntity(new {
+                error = "MERCHANT_STORE_NOT_ON_MAP",
+                message = "the merchant's store address has no point on the map, so the distance to "
+                        + "you cannot be measured and this order was not placed. Nothing has been "
+                        + "charged or reserved.",
+            });
+        } catch (ShippingAddressUnplacedException ex) {
+            return UnprocessableEntity(new {
+                error = "SHIPPING_ADDRESS_NOT_PLACED",
+                reason = PlacementReason(ex.Failure),
+                message = PlacementMessage(ex.Failure)
+                        + " This order was not placed, and nothing has been charged or reserved.",
+            });
+        } catch (AddressPlacementUnavailableException) {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
+                error = "ADDRESS_LOOKUP_UNAVAILABLE",
+                message = "your address cannot be looked up right now, so this order was not placed. "
+                        + "Nothing has been charged or reserved — please try again shortly.",
+            });
+        } catch (AddressUnknownException) {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
+                error = "IDENTITY_UNAVAILABLE",
+                message = "the merchant's store address cannot be looked up right now, so this order "
+                        + "was not placed. Nothing has been charged or reserved — please try again shortly.",
+            });
+        } catch (ShippingNotServiceableException ex) {
+            return UnprocessableEntity(new {
+                error = "SHIPPING_NOT_SERVICEABLE",
+                reasons = ex.Reasons,
+                message = "no courier service can carry this parcel to this address, so this order was "
+                        + "not placed. Nothing has been charged or reserved.",
+            });
         }
     }
+
+    private static string PlacementReason(AddressPlacementFailure failure) => failure switch {
+        AddressPlacementFailure.NotFound => "NOT_FOUND",
+        AddressPlacementFailure.Ambiguous => "AMBIGUOUS",
+        AddressPlacementFailure.OutOfServiceArea => "OUT_OF_SERVICE_AREA",
+        AddressPlacementFailure.Insufficient => "INSUFFICIENT_ADDRESS",
+        AddressPlacementFailure.TooVague => "TOO_VAGUE",
+        _ => throw new ArgumentOutOfRangeException(nameof(failure), failure, "no reason code for this placement failure")
+    };
+
+    private static string PlacementMessage(AddressPlacementFailure failure) => failure switch {
+        AddressPlacementFailure.NotFound => "Your shipping address could not be found on the map.",
+        AddressPlacementFailure.Ambiguous => "Your shipping address matches more than one place; add the area or postal code.",
+        AddressPlacementFailure.OutOfServiceArea => "Your shipping address is outside the area we deliver to.",
+        AddressPlacementFailure.Insufficient => "Your shipping address is incomplete; give the street, area and city.",
+        AddressPlacementFailure.TooVague => "Your shipping address is too general to deliver to; give the street.",
+        _ => throw new ArgumentOutOfRangeException(nameof(failure), failure, "no message for this placement failure")
+    };
 
     [HttpGet("my-orders")]
     public async Task<IActionResult> GetMyOrders(

@@ -181,6 +181,8 @@ public class OrderPartiesTests {
             new Mock<IMerchantStanding>().Object,
             new Mock<IPricingClient>().Object,
             new Mock<IShippingClient>().Object,
+            new Mock<IAddressDirectory>().Object,
+            new Mock<IAddressGeocoder>().Object,
             runner,
             NullLogger<OrderApplicationService>.Instance
         );

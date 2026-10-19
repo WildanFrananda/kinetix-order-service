@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Grpc.Core;
 using Kinetix.OrderService.Application.Exceptions;
+using Kinetix.OrderService.Application.Results;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Controllers;
 using Kinetix.OrderService.DTOs.Requests;
@@ -154,7 +155,7 @@ public class OrderControllerTests {
     }
 
     [Fact]
-    public async Task AProbeDerivedTierRefusalIs422AndDoesNotQuoteTheRateCardAsThisOrdersReason() {
+    public async Task ATierRefusalIs422AndCarriesTheFleetsReasonApartFromTheMessage() {
         var refusal = await CheckoutRefusal(new ShippingTierNotEstablishedException(
             "KINETIX_CARGO", "Cargo is reserved for packages >= 10kg",
             ["KINETIX_REGULAR", "KINETIX_SAMEDAY"]
@@ -168,8 +169,22 @@ public class OrderControllerTests {
         Assert.Contains("could not be confirmed", message);
 
         Assert.Equal("Cargo is reserved for packages >= 10kg", Text(refusal.Value!, "rateCardReason"));
-        Assert.Contains("0 km and 0 kg", Text(refusal.Value!, "basis"));
+        Assert.False(Has(refusal.Value!, "basis"));
         Assert.Contains("KINETIX_REGULAR", List(refusal.Value!, "availableTiers"));
+    }
+
+    [Theory]
+    [InlineData(AddressPlacementFailure.NotFound, "NOT_FOUND")]
+    [InlineData(AddressPlacementFailure.Ambiguous, "AMBIGUOUS")]
+    [InlineData(AddressPlacementFailure.OutOfServiceArea, "OUT_OF_SERVICE_AREA")]
+    [InlineData(AddressPlacementFailure.Insufficient, "INSUFFICIENT_ADDRESS")]
+    [InlineData(AddressPlacementFailure.TooVague, "TOO_VAGUE")]
+    public async Task AnAddressThatCannotBePlacedSaysWhy(AddressPlacementFailure failure, string reason) {
+        var refusal = await CheckoutRefusal(new ShippingAddressUnplacedException(failure, "identity's detail"));
+
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, refusal.StatusCode);
+        Assert.Equal(reason, Text(refusal.Value!, "reason"));
+        Assert.Contains("nothing has been charged", Text(refusal.Value!, "message"));
     }
 
     [Fact]
@@ -206,6 +221,12 @@ public class OrderControllerTests {
             new EmptyCartException(),
             new CartItemsHaveNoMerchantException(),
             new CartSpansTwoMerchantsException(2),
+            new ProductWeightUnknownException(["PRODUCT-01"]),
+            new MerchantStoreUnplacedException("merchant-1"),
+            new ShippingAddressUnplacedException(AddressPlacementFailure.NotFound, "no match"),
+            new AddressPlacementUnavailableException("the geocoder is down"),
+            new AddressUnknownException("merchant-1", new RpcException(new Status(StatusCode.Unavailable, "no route"))),
+            new ShippingNotServiceableException(["KINETIX_REGULAR: Distance exceeds 500km limit"]),
         };
 
         var rendered = new List<string>();
@@ -227,6 +248,12 @@ public class OrderControllerTests {
             "400 CART_EMPTY",
             "400 CART_ITEMS_HAVE_NO_MERCHANT",
             "400 CART_SPANS_TWO_MERCHANTS",
+            "422 PRODUCT_WEIGHT_UNKNOWN",
+            "422 MERCHANT_STORE_NOT_ON_MAP",
+            "422 SHIPPING_ADDRESS_NOT_PLACED",
+            "503 ADDRESS_LOOKUP_UNAVAILABLE",
+            "503 IDENTITY_UNAVAILABLE",
+            "422 SHIPPING_NOT_SERVICEABLE",
         ], rendered);
     }
 

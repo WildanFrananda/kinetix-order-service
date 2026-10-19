@@ -1,5 +1,3 @@
-using Kinetix.OrderService.Application.Checkout;
-
 namespace Kinetix.OrderService.Application.Exceptions;
 
 public class ShippingTierNotEstablishedException(
@@ -7,8 +5,8 @@ public class ShippingTierNotEstablishedException(
     string? rateCardReason,
     IReadOnlyList<string> availableTiers
 ) : Exception(
-    $"shipping tier '{requestedTier}' could not be established for this order: matching declined "
-  + $"it against {ShippingRateCardProbe.AvailabilityBasis}"
+    $"shipping tier '{requestedTier}' could not be established for this parcel on this route: "
+  + (rateCardReason ?? "no reason was given")
 ) {
     public string RequestedTier { get; } = requestedTier;
 

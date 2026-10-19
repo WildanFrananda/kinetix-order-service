@@ -20,7 +20,8 @@ public class CartServiceTests {
         MerchantPrincipalId: "3aa957c8-b802-4d58-b9fc-f7b76ce60fa3",
         Title: "Kinetix Premium Shirt",
         UnitPrice: 150000m,
-        CategoryId: "apparel"
+        CategoryId: "apparel",
+        WeightGrams: 250
     );
 
     public CartServiceTests() {
@@ -33,17 +34,14 @@ public class CartServiceTests {
 
     [Fact]
     public async Task AddItemAsync_AddsNewItemToCart() {
-        // Arrange
         string customerPrincipalId = "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7";
         _mockCache.Setup(c => c.GetAsync(It.IsAny<string>(), CancellationToken.None))
             .ReturnsAsync((byte[]?)null);
 
         var request = new AddCartItemRequest("TSHIRT-BLK-M", 2);
 
-        // Act
         var result = await _cartService.AddItemAsync(customerPrincipalId, request);
 
-        // Assert
         Assert.Single(result.Items);
         Assert.Equal("TSHIRT-BLK-M", result.Items[0].ProductId);
         Assert.Equal(2, result.Items[0].Quantity);
@@ -90,7 +88,6 @@ public class CartServiceTests {
 
     [Fact]
     public async Task RemoveItemAsync_RemovesItemFromCart() {
-        // Arrange
         string customerPrincipalId = "9f1d4a3e-1c62-4d0a-9a7b-2f5c8e0b41d7";
         var existingCart = new Domain.Entities.CustomerCart(customerPrincipalId);
         existingCart.Items.Add(new Domain.Entities.CartItem {
@@ -104,10 +101,8 @@ public class CartServiceTests {
         _mockCache.Setup(c => c.GetAsync(It.IsAny<string>(), CancellationToken.None))
             .ReturnsAsync(json);
 
-        // Act
         var result = await _cartService.RemoveItemAsync(customerPrincipalId, "SHOES-RUN-42");
 
-        // Assert
         Assert.Empty(result.Items);
         Assert.Equal(0m, result.Subtotal);
     }

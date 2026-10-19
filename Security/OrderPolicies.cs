@@ -8,8 +8,8 @@ public static class OrderPolicies {
 
     public static AuthorizationBuilder AddOrderPolicies(this AuthorizationBuilder builder) =>
         builder
-            .AddPolicy(SagaAdminController.SagaOperatorPolicy, policy =>
-                policy.RequireAuthenticatedUser().RequireRole(StaffRoles.All)
+            .AddPolicy(SagaAdminController.SagaAdminPolicy, policy =>
+                policy.RequireAuthenticatedUser().RequireRole(StaffRoles.Admin)
             )
             .AddPolicy(MerchantPayout, policy =>
                 policy.RequireAuthenticatedUser().RequireRole(StaffRoles.Admin)

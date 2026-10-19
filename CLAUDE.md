@@ -11,11 +11,31 @@ from the cart. A line pricing did not price, a quantity it priced differently, o
 up to its subtotal refuse the checkout. Returns are refunded from these amounts, so they must be what
 was paid.
 
+## Shipping is quoted for the parcel, on the route it travels
+
+Checkout asks matching for the courier options from the merchant's store, the point identity holds for it,
+to the address the buyer typed, which identity's geocoder places (`geo.v1.GeocodingService/GeocodeAddress`),
+for the parcel's weight: catalog's `weight_grams` times each line's quantity. A product with no weight refuses
+the checkout (`PRODUCT_WEIGHT_UNKNOWN`), as does a store with no point (`MERCHANT_STORE_NOT_ON_MAP`) and an
+address identity cannot place or places no closer than a suburb (`SHIPPING_ADDRESS_NOT_PLACED`, with the
+reason); all three are 422. A geocoder that cannot answer is 503 `ADDRESS_LOOKUP_UNAVAILABLE`, never a bad
+address. The order stores the drop-off point and the parcel weight, and the courier is dispatched to that
+point with that weight.
+
+Until 2026-10-18 the quote was asked with no route and no weight, so matching answered each tier's floor
+(`TIER_FLOOR`): every buyer paid the minimum fee whatever the distance, and the courier went to the point on
+the buyer's profile rather than the address on the order. `TIER_FLOOR` stays in the enum for the orders that
+were quoted that way, and such an order, with no drop-off stored, is still dispatched to the profile point
+with weight 0, which matching reads as unstated.
+
+The geocode call has its own deadline, `KINETIX_GEOCODE_DEADLINE_SECONDS`, required: identity gives the
+geocoding provider eight seconds, longer than the five the rest of the saga allows.
+
 ## A packed order is owed a courier
 
 When warehouse reports an order packed, order records a row in `courier_dispatches` before it asks
-anyone anything, then tries once: the store's and the buyer's points from identity, `DispatchCourier` to
-matching, and the tracking number to warehouse. Whatever does not go through is retried by
+anyone anything, then tries once: the store's point from identity and the drop-off stored at checkout,
+`DispatchCourier` to matching, and the tracking number to warehouse. Whatever does not go through is retried by
 `CourierDispatchSweeper`, backing off a minute per attempt up to an hour, the same shape as
 `shipping_settlements`. Until 2026-10-11 a failed dispatch was a log line and nothing else: the order sat
 in `PROCESSING_FULFILLMENT` with no courier for good, and when identity could not be asked the log said
@@ -112,9 +132,29 @@ The log is the notary's evidence of the order lifecycle (notary PLAN decision 37
 `order.v1.OrderLifecycleService/LifecycleEventsSince`. Its cursor is `(transaction_id xid8, sequence)` and it
 serves only rows below `pg_snapshot_xmin(pg_current_snapshot())`: a row whose transaction commits after a
 later one cannot be skipped. A cursor on a value written before commit loses exactly that row — reproduced on
-2026-10-16 — and `OrdersChangedSince` keys on `updated_at`, set before commit, so search's read model is
-exposed to the same loss. The notary needs `notary@order.v1.OrderLifecycleService/LifecycleEventsSince` on
-the allow list.
+2026-10-16. The notary needs `notary@order.v1.OrderLifecycleService/LifecycleEventsSince` on the allow list.
+
+## The order feed reads in commit-safe order
+
+`OrdersChangedSince` used to page by `(updated_at, order_number)`, and `updated_at` is set before commit, so
+search's read model could lose an order exactly as above. Since 2026-10-19 every order carries
+`change_transaction_id xid8`, stamped by the `orders_stamp_change_transaction` trigger on every insert and
+update and mapped as generated on add or update, so EF never writes it and reads it back. A cursor that
+carries `transaction_id` is served by `OrdersChangedAfterAsync`: orders ordered by
+`(change_transaction_id, order_number)`, only below the snapshot's `xmin`, with their line titles read in a
+second query so the raw SQL's order survives. A cursor without `transaction_id` is served the old way until
+search speaks the new one in production; then `OrdersChangedSinceAsync` and `ix_orders_changed_since` go.
+
+A test that migrates a scratch database to an older migration must write and read that schema's rows in SQL:
+the current model names columns the old schema does not have.
+
+## An unknown signing key is looked for at most every ten seconds
+
+`JwksKeyProvider` answers a token's `kid` from the keys it holds. A `kid` it does not hold makes it fetch
+identity's JWKS again, but only if the last fetch was at least `UnknownKeyRefreshInterval` (ten seconds, as
+the notary uses) ago, and one fetch at a time. Until 2026-10-19 every request carrying an unknown `kid` fetched
+the JWKS, synchronously, so a stream of forged tokens with made-up key ids made identity answer once per
+request. A key identity publishes is found within ten seconds of the first token that carries it.
 
 ## The suite runs in CI, against Postgres
 

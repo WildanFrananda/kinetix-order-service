@@ -52,7 +52,7 @@ public class CourierDispatcher(
 
         try {
             pickup = await _addresses.PickupPointAsync(dispatch.MerchantPrincipalId);
-            delivery = await _addresses.DeliveryPointAsync(order.CustomerPrincipalId);
+            delivery = StoredDeliveryPoint(order) ?? await _addresses.DeliveryPointAsync(order.CustomerPrincipalId);
         } catch (AddressUnknownException e) {
             Defer(dispatch, $"{e.Message}: {e.InnerException?.Message}");
             return false;
@@ -83,6 +83,7 @@ public class CourierDispatcher(
                     Latitude = delivery.Latitude,
                     Longitude = delivery.Longitude,
                 },
+                ParcelWeightGrams = order.ParcelWeightGrams ?? 0,
             });
         } catch (RpcException e) {
             Defer(dispatch, $"the fleet could not be reached: {e.Status.Detail}");
@@ -181,4 +182,9 @@ public class CourierDispatcher(
     }
 
     private static string Trim(string reason) => reason.Length <= 500 ? reason : reason[..500];
+
+    private static MapPoint? StoredDeliveryPoint(OrderEntity order) =>
+        order is { DeliveryLatitude: { } latitude, DeliveryLongitude: { } longitude }
+            ? new MapPoint(latitude, longitude)
+            : null;
 }

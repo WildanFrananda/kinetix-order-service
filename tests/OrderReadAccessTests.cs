@@ -70,11 +70,9 @@ public class OrderReadAccessTests {
         Assert.Equal(absent.Value!.ToString(), refused.Value!.ToString());
     }
 
-    [Theory]
-    [InlineData("operator")]
-    [InlineData("admin")]
-    public async Task StaffMayReadAnyOrder(string role) {
-        var response = await ControllerFor(Caller(Stranger, role), AnOrderOf(Owner)).GetOrderById(OrderId);
+    [Fact]
+    public async Task AnAdminMayReadAnyOrder() {
+        var response = await ControllerFor(Caller(Stranger, "admin"), AnOrderOf(Owner)).GetOrderById(OrderId);
 
         Assert.IsType<OkObjectResult>(response);
     }
@@ -83,6 +81,7 @@ public class OrderReadAccessTests {
     [InlineData("customer")]
     [InlineData("seller")]
     [InlineData("courier")]
+    [InlineData("operator")]
     public async Task NoOtherRoleOpensSomeoneElsesOrder(string role) {
         var response = await ControllerFor(Caller(Stranger, role), AnOrderOf(Owner)).GetOrderById(OrderId);
 

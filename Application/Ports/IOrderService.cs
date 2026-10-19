@@ -10,4 +10,5 @@ public interface IOrderService {
     Task<OrderResponse?> GetOrderByIdAsync(Guid orderId);
     Task<CustomerOrderPage> GetCustomerOrdersAsync(string customerPrincipalId, OrderStatus? status, int page, int pageSize);
     Task<OrderChangePage> OrdersChangedSinceAsync(DateTime? updatedThrough, string lastOrderNumber, int limit);
+    Task<OrderChangePage> OrdersChangedAfterAsync(ulong transactionId, string lastOrderNumber, int limit);
 }

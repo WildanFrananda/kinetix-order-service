@@ -297,12 +297,13 @@ public class OrderGrpcServerService(
 
         DateTime? updatedThrough = request.Cursor?.UpdatedThrough?.ToDateTime();
         string lastOrderNumber = request.Cursor?.LastOrderNumber ?? string.Empty;
+        ulong? transactionId = request.Cursor?.HasTransactionId == true
+            ? request.Cursor.TransactionId
+            : null;
 
-        var page = await _orderService.OrdersChangedSinceAsync(
-            updatedThrough,
-            lastOrderNumber,
-            limit
-        );
+        var page = transactionId is ulong after
+            ? await _orderService.OrdersChangedAfterAsync(after, lastOrderNumber, limit)
+            : await _orderService.OrdersChangedSinceAsync(updatedThrough, lastOrderNumber, limit);
 
         var response = new OrderProto.OrdersChangedSinceResponse { HasMore = page.HasMore };
 
@@ -330,9 +331,15 @@ public class OrderGrpcServerService(
                 LastOrderNumber = lastOrderNumber
             }
             : new OrderProto.OrderCursor {
-                UpdatedThrough = Timestamp.FromDateTime(last.UpdatedAt),
+                UpdatedThrough = Timestamp.FromDateTime(
+                    transactionId is null ? last.UpdatedAt : page.Changes.Max(c => c.UpdatedAt)
+                ),
                 LastOrderNumber = last.OrderNumber
             };
+
+        if (transactionId is ulong resumedAt) {
+            response.Next.TransactionId = page.LastTransactionId ?? resumedAt;
+        }
 
         return response;
     }

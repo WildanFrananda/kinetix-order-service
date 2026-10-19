@@ -34,6 +34,8 @@ public class OrderChangeFeedTests {
             new Mock<IMerchantStanding>().Object,
             new Mock<IPricingClient>().Object,
             new Mock<IShippingClient>().Object,
+            new Mock<IAddressDirectory>().Object,
+            new Mock<IAddressGeocoder>().Object,
             null!,
             NullLogger<OrderApplicationService>.Instance
         );
@@ -202,6 +204,86 @@ public class OrderChangeFeedTests {
         Assert.True(response.HasMore);
         Assert.Equal("ORD-B", response.Next.LastOrderNumber);
         Assert.Equal(Noon.AddMinutes(3), response.Next.UpdatedThrough.ToDateTime());
+    }
+
+    [Fact]
+    public async Task TheEdgeReadsByTransactionWhenTheCursorNamesOne_ZeroIncluded() {
+        var orders = new Mock<IOrderService>();
+        orders.Setup(o => o.OrdersChangedAfterAsync(
+                It.IsAny<ulong>(), It.IsAny<string>(), It.IsAny<int>()))
+            .ReturnsAsync(new OrderChangePage([], false, 0));
+
+        await ServerOver(orders.Object).OrdersChangedSince(
+            new OrderProto.OrdersChangedSinceRequest {
+                Cursor = new OrderProto.OrderCursor { TransactionId = 0 }
+            },
+            null!
+        );
+
+        orders.Verify(o => o.OrdersChangedAfterAsync(0, string.Empty, 100), Times.Once);
+        orders.Verify(
+            o => o.OrdersChangedSinceAsync(It.IsAny<DateTime?>(), It.IsAny<string>(), It.IsAny<int>()),
+            Times.Never
+        );
+    }
+
+    [Fact]
+    public async Task TheEdgeHandsBackThePagesLastTransactionAndTheLatestChangeItSaw() {
+        var orders = new Mock<IOrderService>();
+        orders.Setup(o => o.OrdersChangedAfterAsync(
+                It.IsAny<ulong>(), It.IsAny<string>(), It.IsAny<int>()))
+            .ReturnsAsync(new OrderChangePage([
+                new OrderChange("ORD-A", Buyer, Merchant, OrderStatus.PAID, ["Tas"], Noon, Noon.AddMinutes(9)),
+                new OrderChange("ORD-B", Buyer, Merchant, OrderStatus.PAID, ["Tas"], Noon, Noon.AddMinutes(3))
+            ], true, 812));
+
+        var response = await ServerOver(orders.Object).OrdersChangedSince(
+            new OrderProto.OrdersChangedSinceRequest {
+                Cursor = new OrderProto.OrderCursor { TransactionId = 700, LastOrderNumber = "ORD-0" }
+            },
+            null!
+        );
+
+        Assert.True(response.Next.HasTransactionId);
+        Assert.Equal(812UL, response.Next.TransactionId);
+        Assert.Equal("ORD-B", response.Next.LastOrderNumber);
+        Assert.Equal(Noon.AddMinutes(9), response.Next.UpdatedThrough.ToDateTime());
+    }
+
+    [Fact]
+    public async Task TheEdgeGivesTheCallersTransactionBackWhenNothingChanged() {
+        var orders = new Mock<IOrderService>();
+        orders.Setup(o => o.OrdersChangedAfterAsync(
+                It.IsAny<ulong>(), It.IsAny<string>(), It.IsAny<int>()))
+            .ReturnsAsync(new OrderChangePage([], false, 700));
+
+        var response = await ServerOver(orders.Object).OrdersChangedSince(
+            new OrderProto.OrdersChangedSinceRequest {
+                Cursor = new OrderProto.OrderCursor { TransactionId = 700, LastOrderNumber = "ORD-9" }
+            },
+            null!
+        );
+
+        Assert.Equal(700UL, response.Next.TransactionId);
+        Assert.Equal("ORD-9", response.Next.LastOrderNumber);
+    }
+
+    [Fact]
+    public async Task TheEdgeAnswersACursorWithoutATransactionTheOldWay() {
+        var orders = new Mock<IOrderService>();
+        orders.Setup(o => o.OrdersChangedSinceAsync(
+                It.IsAny<DateTime?>(), It.IsAny<string>(), It.IsAny<int>()))
+            .ReturnsAsync(new OrderChangePage([], false));
+
+        var response = await ServerOver(orders.Object).OrdersChangedSince(
+            new OrderProto.OrdersChangedSinceRequest(), null!
+        );
+
+        Assert.False(response.Next.HasTransactionId);
+        orders.Verify(
+            o => o.OrdersChangedAfterAsync(It.IsAny<ulong>(), It.IsAny<string>(), It.IsAny<int>()),
+            Times.Never
+        );
     }
 
     [Fact]

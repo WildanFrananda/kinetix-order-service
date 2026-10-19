@@ -22,6 +22,8 @@ public class OrderService(
     IMerchantStanding merchants,
     IPricingClient pricingClient,
     IShippingClient shippingClient,
+    IAddressDirectory addresses,
+    IAddressGeocoder geocoder,
     CheckoutSagaRunner sagaRunner,
     ILogger<OrderService> logger
 ) : IOrderService {
@@ -31,6 +33,8 @@ public class OrderService(
     private readonly IMerchantStanding _merchants = merchants;
     private readonly IPricingClient _pricingClient = pricingClient;
     private readonly IShippingClient _shippingClient = shippingClient;
+    private readonly IAddressDirectory _addresses = addresses;
+    private readonly IAddressGeocoder _geocoder = geocoder;
     private readonly CheckoutSagaRunner _sagaRunner = sagaRunner;
     private readonly ILogger<OrderService> _logger = logger;
 
@@ -71,7 +75,15 @@ public class OrderService(
             throw new MerchantMayNotSellException(merchantPrincipalId);
         }
 
-        var shippingQuote = await QuoteShippingAsync(request.ShippingServiceTier, merchantPrincipalId);
+        long parcelWeightGrams = ParcelWeight(cart.Items, products);
+        var route = await RouteAsync(merchantPrincipalId, request.ShippingAddress);
+
+        var shippingQuote = await QuoteShippingAsync(
+            request.ShippingServiceTier,
+            merchantPrincipalId,
+            route,
+            parcelWeightGrams
+        );
         decimal baseShippingFee = shippingQuote.BaseShippingFee;
 
         var priceLines = cart.Items
@@ -139,6 +151,9 @@ public class OrderService(
             ShippingServiceTier = shippingQuote.ServiceTier,
             DistanceKm = shippingQuote.DistanceKm,
             ShippingQuoteBasis = shippingQuote.Basis,
+            DeliveryLatitude = route.DropOff.Latitude,
+            DeliveryLongitude = route.DropOff.Longitude,
+            ParcelWeightGrams = parcelWeightGrams,
             ShippingAddress = request.ShippingAddress,
             RecipientName = request.RecipientName ?? string.Empty,
             RecipientPhone = request.RecipientPhone ?? string.Empty,
@@ -193,7 +208,41 @@ public class OrderService(
         return MapToOrderResponse(order, null);
     }
 
+    private static long ParcelWeight(IReadOnlyList<CartItem> items, IReadOnlyList<CatalogProduct> products) {
+        var unweighed = products
+            .Where(p => p.WeightGrams is null or <= 0)
+            .Select(p => p.ProductId)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (unweighed.Count > 0) {
+            throw new ProductWeightUnknownException(unweighed);
+        }
+
+        return checked(items.Zip(products, (item, product) => product.WeightGrams!.Value * item.Quantity).Sum());
+    }
+
+    private async Task<ShippingRoute> RouteAsync(string merchantPrincipalId, string shippingAddress) {
+        var pickup = await _addresses.PickupPointAsync(merchantPrincipalId)
+            ?? throw new MerchantStoreUnplacedException(merchantPrincipalId);
+
+        var placement = await _geocoder.PlaceAsync(shippingAddress);
+
+        if (placement.Point is { } dropOff) {
+            return new ShippingRoute(pickup, dropOff);
+        }
+
+        if (placement.Failure is { } failure) {
+            throw new ShippingAddressUnplacedException(failure, placement.Detail);
+        }
+
+        throw new AddressPlacementUnavailableException("the address came back neither placed nor refused");
+    }
+
     private static void RequireRecipient(CheckoutRequest request) {
+        if (string.IsNullOrWhiteSpace(request.ShippingAddress)) {
+            throw new RecipientMissingException("shippingAddress");
+        }
         if (string.IsNullOrWhiteSpace(request.RecipientName)) {
             throw new RecipientMissingException("recipientName");
         }
@@ -333,68 +382,39 @@ public class OrderService(
                 )
         );
 
-        if (options.Count > 0 && options.All(o => !o.IsAvailable)) {
-            faults.Add(
-                $"every tier came back unavailable ({string.Join("; ", options.Select(Describe))}), "
-              + $"and this quote was asked at {ShippingRateCardProbe.ExpectedDistanceKm} km and "
-              + $"{ShippingRateCardProbe.WeightGrams} g, where a rate card has no route and no "
-              + "parcel to refuse, so this is an answer order cannot read rather than a verdict "
-              + "about this delivery"
-            );
-        }
-
         return faults;
     }
 
-    private SelectedShippingQuote Establish(ShippingOptionResult option, QuotedShippingResult quoted) {
-        var basis = option.DistanceKm == ShippingRateCardProbe.ExpectedDistanceKm
-            ? ShippingQuoteBasis.TIER_FLOOR
-            : ShippingQuoteBasis.DISTANCE_QUOTED;
-
-        if (basis != ShippingQuoteBasis.TIER_FLOOR) {
-            _logger.LogWarning(
-                "{Tier} was priced at {Fee} against {DistanceKm}km, not the "
-              + "{ExpectedDistanceKm}km the rate-card probe asks at, so this order's fee is not a "
-              + "tier floor and its row is stamped {Basis}",
-                option.ServiceTier,
-                quoted.BaseShippingFee,
-                option.DistanceKm,
-                ShippingRateCardProbe.ExpectedDistanceKm,
-                basis
-            );
-        }
-
-        return new SelectedShippingQuote(
+    private static SelectedShippingQuote Establish(
+        ShippingOptionResult option,
+        QuotedShippingResult quoted,
+        long parcelWeightGrams
+    ) =>
+        new(
             option.ServiceTier,
             quoted.BaseShippingFee,
             option.DistanceKm,
-            basis,
-            Journey(option)
+            ShippingQuoteBasis.DISTANCE_QUOTED,
+            Journey(option, parcelWeightGrams)
         );
-    }
 
-    private static ShippingJourney Journey(ShippingOptionResult option) =>
-        new(option.ServiceTier, option.DistanceKm, ShippingRateCardProbe.WeightGrams);
+    private static ShippingJourney Journey(ShippingOptionResult option, long parcelWeightGrams) =>
+        new(option.ServiceTier, option.DistanceKm, parcelWeightGrams);
 
-    private async Task<SelectedShippingQuote> QuoteShippingAsync(string? requestedTier, string merchantPrincipalId) {
+    private async Task<SelectedShippingQuote> QuoteShippingAsync(
+        string? requestedTier,
+        string merchantPrincipalId,
+        ShippingRoute route,
+        long parcelWeightGrams
+    ) {
         var quote = await _shippingClient.EstimateShippingOptionsAsync(
-            ShippingRateCardProbe.Latitude,
-            ShippingRateCardProbe.Longitude,
-            ShippingRateCardProbe.Latitude,
-            ShippingRateCardProbe.Longitude,
-            ShippingRateCardProbe.WeightGrams,
+            route.Pickup.Latitude,
+            route.Pickup.Longitude,
+            route.DropOff.Latitude,
+            route.DropOff.Longitude,
+            parcelWeightGrams,
             merchantPrincipalId
         );
-
-        if (quote.DistanceKm != ShippingRateCardProbe.ExpectedDistanceKm) {
-            _logger.LogWarning(
-                "matching measured {DistanceKm}km between the two identical points this quote was "
-              + "asked at, where the rate-card probe expects {ExpectedDistanceKm}; matching is no "
-              + "longer answering the question order thinks it is asking",
-                quote.DistanceKm,
-                ShippingRateCardProbe.ExpectedDistanceKm
-            );
-        }
 
         if (quote.Options.Count == 0) {
             _logger.LogError(
@@ -422,7 +442,12 @@ public class OrderService(
         }
 
         var available = quote.Options.Where(o => o.IsAvailable).ToList();
-        var quoted = await _pricingClient.QuoteShippingAsync([.. available.Select(Journey)]);
+
+        if (available.Count == 0) {
+            throw new ShippingNotServiceableException([.. quote.Options.Select(Describe)]);
+        }
+
+        var quoted = await _pricingClient.QuoteShippingAsync([.. available.Select(o => Journey(o, parcelWeightGrams))]);
 
         var priced = quoted
             .Where(q => q.Priced)
@@ -454,7 +479,7 @@ public class OrderService(
                 );
             }
 
-            return Establish(cheapest, priced[cheapest.ServiceTier]);
+            return Establish(cheapest, priced[cheapest.ServiceTier], parcelWeightGrams);
         }
 
         var matches = quote.Options
@@ -483,7 +508,7 @@ public class OrderService(
             );
         }
 
-        return Establish(match, quotedTier);
+        return Establish(match, quotedTier, parcelWeightGrams);
     }
 
     public async Task<OrderResponse?> GetOrderByIdAsync(Guid orderId) {
@@ -567,6 +592,54 @@ public class OrderService(
                 )
             )],
             hasMore
+        );
+    }
+
+    public async Task<OrderChangePage> OrdersChangedAfterAsync(
+        ulong transactionId,
+        string lastOrderNumber,
+        int limit
+    ) {
+        var after = transactionId.ToString(CultureInfo.InvariantCulture);
+        var take = limit + 1;
+
+        var rows = await _dbContext.Orders
+            .FromSqlInterpolated($@"
+                SELECT *
+                FROM orders
+                WHERE change_transaction_id < pg_snapshot_xmin(pg_current_snapshot())
+                  AND (change_transaction_id, order_number) > (CAST({after} AS xid8), {lastOrderNumber})
+                ORDER BY change_transaction_id, order_number
+                LIMIT {take}")
+            .AsNoTracking()
+            .ToListAsync();
+
+        bool hasMore = rows.Count > limit;
+        var page = hasMore ? rows[..limit] : rows;
+        var ids = page.Select(o => o.Id).ToList();
+
+        var titles = (await _dbContext.OrderItems
+            .AsNoTracking()
+            .Where(i => ids.Contains(i.OrderId))
+            .OrderBy(i => i.Id)
+            .Select(i => new { i.OrderId, i.ProductTitle })
+            .ToListAsync()
+        ).ToLookup(i => i.OrderId, i => i.ProductTitle);
+
+        return new OrderChangePage(
+            [.. page.Select(o =>
+                new OrderChange(
+                    o.OrderNumber,
+                    o.CustomerPrincipalId,
+                    o.MerchantPrincipalId,
+                    o.Status,
+                    [.. titles[o.Id]],
+                    DateTime.SpecifyKind(o.CreatedAt, DateTimeKind.Utc),
+                    DateTime.SpecifyKind(o.UpdatedAt, DateTimeKind.Utc)
+                )
+            )],
+            hasMore,
+            page.Count > 0 ? page[^1].ChangeTransactionId : transactionId
         );
     }
 
