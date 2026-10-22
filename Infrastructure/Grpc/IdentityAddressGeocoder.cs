@@ -1,4 +1,3 @@
-using Grpc.Core;
 using Kinetix.OrderService.Application.Exceptions;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Application.Results;
@@ -27,7 +26,7 @@ public class IdentityAddressGeocoder(
                 deadline: DateTime.UtcNow.Add(_deadline.Length),
                 cancellationToken: cancellationToken
             );
-        } catch (RpcException e) {
+        } catch (Exception e) {
             throw new AddressPlacementUnavailableException("identity could not be asked to place it", e);
         }
 
@@ -59,7 +58,8 @@ public class IdentityAddressGeocoder(
                 $"identity's geocoder is unavailable: {response.FailureDetail}"
             ),
             _ => throw new AddressPlacementUnavailableException(
-                $"identity declined to place the address without saying why ({response.Failure}): {response.FailureDetail}"
+                $"identity declined to place the address without saying why ({response.Failure}): "
+                    + response.FailureDetail
             )
         };
 

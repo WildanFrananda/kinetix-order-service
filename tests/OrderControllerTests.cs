@@ -142,22 +142,24 @@ public class OrderControllerTests {
     }
 
     [Fact]
-    public async Task AnEmptyCartAndAMerchantlessCartDoNotShareAnErrorCode() {
+    public async Task AnEmptyCartAndAMerchantlessProductDoNotShareAnErrorCode() {
         var empty = await CheckoutRefusal(new EmptyCartException());
-        var merchantless = await CheckoutRefusal(new CartItemsHaveNoMerchantException());
+        var merchantless = await CheckoutRefusal(new ProductHasNoMerchantException("PRODUCT-02"));
 
         Assert.Equal(StatusCodes.Status400BadRequest, empty.StatusCode);
-        Assert.Equal(StatusCodes.Status400BadRequest, merchantless.StatusCode);
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, merchantless.StatusCode);
 
         Assert.Equal("CART_EMPTY", Text(empty.Value!, "error"));
-        Assert.Equal("CART_ITEMS_HAVE_NO_MERCHANT", Text(merchantless.Value!, "error"));
+        Assert.Equal("PRODUCT_HAS_NO_MERCHANT", Text(merchantless.Value!, "error"));
+        Assert.Equal("PRODUCT-02", Text(merchantless.Value!, "productId"));
         Assert.Contains("no merchant", Text(merchantless.Value!, "message"));
     }
 
     [Fact]
     public async Task ATierRefusalIs422AndCarriesTheFleetsReasonApartFromTheMessage() {
         var refusal = await CheckoutRefusal(new ShippingTierNotEstablishedException(
-            "KINETIX_CARGO", "Cargo is reserved for packages >= 10kg",
+            "KINETIX_CARGO",
+            "Cargo is reserved for packages >= 10kg",
             ["KINETIX_REGULAR", "KINETIX_SAMEDAY"]
         ));
 
@@ -190,7 +192,8 @@ public class OrderControllerTests {
     [Fact]
     public async Task AnUnknownTierIs400AndCarriesNoRateCardBasis() {
         var refusal = await CheckoutRefusal(new ShippingTierUnknownException(
-            "KINETIX_TELEPORT", ["KINETIX_REGULAR"]
+            "KINETIX_TELEPORT",
+            ["KINETIX_REGULAR"]
         ));
 
         Assert.Equal(StatusCodes.Status400BadRequest, refusal.StatusCode);
@@ -217,9 +220,11 @@ public class OrderControllerTests {
             new ShippingTierUnknownException("KINETIX_TELEPORT", []),
             new ShippingFeeContradictedException(9000m, 0m, 0m),
             new OrderAmountsUnchargeableException("the total to escrow (1) is not what it splits into"),
-            new CheckoutFailedException("ORD-20260908-0001", "stock for PRODUCT-01: out of stock"),
+            new CheckoutFailedException("ORD-20260908-0001", "stock for PRODUCT-01: out of stock", true, false, false),
+            new CheckoutFailedException("ORD-20260908-0002", "stock for PRODUCT-01: out of stock", false, false, false),
+            new CheckoutFailedException("ORD-20260908-0003", "a service did not answer", true, true, false),
             new EmptyCartException(),
-            new CartItemsHaveNoMerchantException(),
+            new ProductHasNoMerchantException("PRODUCT-02"),
             new CartSpansTwoMerchantsException(2),
             new ProductWeightUnknownException(["PRODUCT-01"]),
             new MerchantStoreUnplacedException("merchant-1"),
@@ -227,6 +232,15 @@ public class OrderControllerTests {
             new AddressPlacementUnavailableException("the geocoder is down"),
             new AddressUnknownException("merchant-1", new RpcException(new Status(StatusCode.Unavailable, "no route"))),
             new ShippingNotServiceableException(["KINETIX_REGULAR: Distance exceeds 500km limit"]),
+            new RecipientMissingException("shippingAddress"),
+            new FieldTooLongException("shippingAddress", 500),
+            new IdempotencyKeyReusedException("ORD-20260908-0004"),
+            new CheckoutInProgressException("ORD-20260908-0005"),
+            new PricingRefusedException("no shipping rate for tier 'KINETIX_CARGO'", new Exception("refused")),
+            new OrderTotalNotChargeableException(),
+            new OwnProductNotPurchasableException("PRODUCT-01"),
+            new CartLineQuantityOutOfRangeException("PRODUCT-01", 0, 1, 999),
+            new CartUnavailableException(new Exception("redis is down")),
         };
 
         var rendered = new List<string>();
@@ -236,25 +250,89 @@ public class OrderControllerTests {
         }
 
         Assert.Equal(rendered.Count, rendered.Distinct().Count());
-        Assert.Equal([
-            "503 PRICING_UNAVAILABLE",
-            "503 SHIPPING_UNAVAILABLE",
-            "502 SHIPPING_QUOTE_MALFORMED",
-            "422 SHIPPING_TIER_NOT_ESTABLISHED",
-            "400 SHIPPING_TIER_UNKNOWN",
-            "502 SHIPPING_FEE_CONTRADICTED",
-            "502 ORDER_AMOUNTS_UNCHARGEABLE",
-            "409 CHECKOUT_ROLLED_BACK",
-            "400 CART_EMPTY",
-            "400 CART_ITEMS_HAVE_NO_MERCHANT",
-            "400 CART_SPANS_TWO_MERCHANTS",
-            "422 PRODUCT_WEIGHT_UNKNOWN",
-            "422 MERCHANT_STORE_NOT_ON_MAP",
-            "422 SHIPPING_ADDRESS_NOT_PLACED",
-            "503 ADDRESS_LOOKUP_UNAVAILABLE",
-            "503 IDENTITY_UNAVAILABLE",
-            "422 SHIPPING_NOT_SERVICEABLE",
-        ], rendered);
+        Assert.Equal(
+            [
+                "503 PRICING_UNAVAILABLE",
+                "503 SHIPPING_UNAVAILABLE",
+                "502 SHIPPING_QUOTE_MALFORMED",
+                "422 SHIPPING_TIER_NOT_ESTABLISHED",
+                "400 SHIPPING_TIER_UNKNOWN",
+                "502 SHIPPING_FEE_CONTRADICTED",
+                "502 ORDER_AMOUNTS_UNCHARGEABLE",
+                "409 CHECKOUT_ROLLED_BACK",
+                "409 CHECKOUT_ROLLBACK_PENDING",
+                "503 CHECKOUT_DEPENDENCY_UNAVAILABLE",
+                "400 CART_EMPTY",
+                "422 PRODUCT_HAS_NO_MERCHANT",
+                "400 CART_SPANS_TWO_MERCHANTS",
+                "422 PRODUCT_WEIGHT_UNKNOWN",
+                "422 MERCHANT_STORE_NOT_ON_MAP",
+                "422 SHIPPING_ADDRESS_NOT_PLACED",
+                "503 ADDRESS_LOOKUP_UNAVAILABLE",
+                "503 IDENTITY_UNAVAILABLE",
+                "422 SHIPPING_NOT_SERVICEABLE",
+                "400 RECIPIENT_REQUIRED",
+                "400 FIELD_TOO_LONG",
+                "422 IDEMPOTENCY_KEY_REUSED",
+                "409 CHECKOUT_IN_PROGRESS",
+                "422 PRICING_REFUSED",
+                "422 ORDER_TOTAL_NOT_CHARGEABLE",
+                "422 OWN_PRODUCT_NOT_PURCHASABLE",
+                "422 CART_LINE_QUANTITY_OUT_OF_RANGE",
+                "503 CART_UNAVAILABLE",
+            ],
+            rendered
+        );
+    }
+
+    [Fact]
+    public async Task ARolledBackCheckoutSaysEverythingCameBack() {
+        var refusal = await CheckoutRefusal(
+            new CheckoutFailedException("ORD-20261021-0001", "stock for PRODUCT-01: out of stock", true, false, false)
+        );
+
+        Assert.Equal(StatusCodes.Status409Conflict, refusal.StatusCode);
+        Assert.Equal("CHECKOUT_ROLLED_BACK", Text(refusal.Value!, "error"));
+        Assert.Equal("True", Text(refusal.Value!, "rolledBack"));
+        Assert.Contains("has been given back", Text(refusal.Value!, "message"));
+    }
+
+    [Fact]
+    public async Task ACheckoutStillUnwindingDoesNotClaimItIsRolledBack() {
+        var refusal = await CheckoutRefusal(
+            new CheckoutFailedException("ORD-20261021-0002", "stock for PRODUCT-01: out of stock", false, false, false)
+        );
+
+        Assert.Equal(StatusCodes.Status409Conflict, refusal.StatusCode);
+        Assert.Equal("CHECKOUT_ROLLBACK_PENDING", Text(refusal.Value!, "error"));
+        Assert.Equal("False", Text(refusal.Value!, "rolledBack"));
+        Assert.Contains("still being given back", Text(refusal.Value!, "message"));
+        Assert.DoesNotContain("has been given back", Text(refusal.Value!, "message"));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ACheckoutADependencyCouldNotAnswerIs503WhateverItsRollback(bool rolledBack) {
+        var refusal = await CheckoutRefusal(
+            new CheckoutFailedException("ORD-20261021-0003", "a service did not answer", rolledBack, true, false)
+        );
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, refusal.StatusCode);
+        Assert.Equal("CHECKOUT_DEPENDENCY_UNAVAILABLE", Text(refusal.Value!, "error"));
+        Assert.Equal(rolledBack.ToString(), Text(refusal.Value!, "rolledBack"));
+    }
+
+    [Fact]
+    public async Task AReplayedFailureSaysTheKeyIsSpent() {
+        var refusal = await CheckoutRefusal(
+            new CheckoutFailedException("ORD-20261021-0004", "a service did not answer", true, false, true)
+        );
+
+        Assert.Equal(StatusCodes.Status409Conflict, refusal.StatusCode);
+        Assert.Equal("CHECKOUT_ROLLED_BACK", Text(refusal.Value!, "error"));
+        Assert.Equal("True", Text(refusal.Value!, "replayed"));
+        Assert.Contains("new Idempotency-Key", Text(refusal.Value!, "message"));
     }
 
     [Fact]

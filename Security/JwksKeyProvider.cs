@@ -20,47 +20,52 @@ public sealed class JwksKeyProvider(
     private readonly SemaphoreSlim _refreshing = new(1, 1);
     private Dictionary<string, SecurityKey> _keys = [];
     private DateTimeOffset? _lastRefresh;
+    private bool _lastRefreshFailed;
 
     public async Task<int> RefreshAsync(CancellationToken ct = default) {
         lock (_gate) {
             _lastRefresh = _clock.GetUtcNow();
         }
 
-        var body = await _http.GetStringAsync(_url, ct);
-        using var doc = JsonDocument.Parse(body);
-
-        var fresh = new Dictionary<string, SecurityKey>(StringComparer.Ordinal);
-        foreach (var jwk in doc.RootElement.GetProperty("keys").EnumerateArray()) {
-            if (jwk.TryGetProperty("alg", out var alg) && alg.GetString() != "RS256") {
-                continue;
+        Dictionary<string, SecurityKey> fresh;
+        try {
+            fresh = await FetchAsync(ct);
+        } catch (Exception) {
+            lock (_gate) {
+                _lastRefreshFailed = true;
             }
 
-            var kid = jwk.GetProperty("kid").GetString();
-            if (kid is null) {
-                continue;
-            }
-
-            var key = new JsonWebKey {
-                Kty = "RSA",
-                Kid = kid,
-                N = jwk.GetProperty("n").GetString(),
-                E = jwk.GetProperty("e").GetString(),
-                Alg = "RS256",
-            };
-            fresh[kid] = key;
-        }
-
-        if (fresh.Count == 0) {
-            throw new InvalidOperationException($"{_url} published no usable RS256 keys.");
+            throw;
         }
 
         lock (_gate) {
             _keys = fresh;
+            _lastRefreshFailed = false;
         }
+
         return fresh.Count;
     }
 
-    public IEnumerable<SecurityKey> Resolve(string _token, SecurityToken _security, string kid, TokenValidationParameters _p) {
+    public bool CannotVouchFor(string? kid) {
+        if (kid is null) {
+            return false;
+        }
+
+        lock (_gate) {
+            return _lastRefreshFailed && !_keys.ContainsKey(kid);
+        }
+    }
+
+    public IEnumerable<SecurityKey> Resolve(
+        string _token,
+        SecurityToken _security,
+        string kid,
+        TokenValidationParameters _p
+    ) {
+        if (kid is null) {
+            return [];
+        }
+
         lock (_gate) {
             if (_keys.TryGetValue(kid, out var known)) {
                 return [known];
@@ -94,5 +99,37 @@ public sealed class JwksKeyProvider(
         } finally {
             _refreshing.Release();
         }
+    }
+
+    private async Task<Dictionary<string, SecurityKey>> FetchAsync(CancellationToken ct) {
+        var body = await _http.GetStringAsync(_url, ct);
+        using var doc = JsonDocument.Parse(body);
+
+        var fresh = new Dictionary<string, SecurityKey>(StringComparer.Ordinal);
+        foreach (var jwk in doc.RootElement.GetProperty("keys").EnumerateArray()) {
+            if (jwk.TryGetProperty("alg", out var alg) && alg.GetString() != "RS256") {
+                continue;
+            }
+
+            var kid = jwk.GetProperty("kid").GetString();
+            if (kid is null) {
+                continue;
+            }
+
+            var key = new JsonWebKey {
+                Kty = "RSA",
+                Kid = kid,
+                N = jwk.GetProperty("n").GetString(),
+                E = jwk.GetProperty("e").GetString(),
+                Alg = "RS256",
+            };
+            fresh[kid] = key;
+        }
+
+        if (fresh.Count == 0) {
+            throw new InvalidOperationException($"{_url} published no usable RS256 keys.");
+        }
+
+        return fresh;
     }
 }

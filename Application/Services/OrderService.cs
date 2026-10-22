@@ -43,24 +43,20 @@ public class OrderService(
         CheckoutRequest request,
         string? idempotencyKey
     ) {
-        RequireRecipient(request);
-        if (!string.IsNullOrEmpty(idempotencyKey)) {
-            var existingOrder = await _dbContext.Orders
-                .Include(o => o.Items)
-                .FirstOrDefaultAsync(o =>
-                    o.IdempotencyKey == idempotencyKey
-                    && o.CustomerPrincipalId == customerPrincipalId
-                );
+        var recipient = CheckoutRecipient.From(request);
+        var key = KeyOf(idempotencyKey);
+        var fingerprint = CheckoutFingerprint.Of(request);
 
-            if (existingOrder != null) {
-                return MapToOrderResponse(existingOrder, await DriverOfAsync(existingOrder.OrderNumber));
-            }
+        if (key is not null && await ReplayAsync(customerPrincipalId, key, fingerprint) is { } replayed) {
+            return replayed;
         }
 
         var cart = await _cartService.GetCartAsync(customerPrincipalId);
         if (cart.Items.Count == 0) {
             throw new EmptyCartException();
         }
+
+        RequireLineQuantities(cart.Items);
 
         string? requestedVoucher = request.VoucherCode ?? cart.AppliedVoucherCode;
 
@@ -69,6 +65,7 @@ public class OrderService(
             products.Add(await _products.GetProductAsync(item.ProductId));
         }
 
+        RefuseOwnProducts(customerPrincipalId, products);
         string merchantPrincipalId = ResolveMerchantPrincipal(products);
 
         if (!await _merchants.MaySellAsync(merchantPrincipalId)) {
@@ -76,7 +73,7 @@ public class OrderService(
         }
 
         long parcelWeightGrams = ParcelWeight(cart.Items, products);
-        var route = await RouteAsync(merchantPrincipalId, request.ShippingAddress);
+        var route = await RouteAsync(merchantPrincipalId, recipient.ShippingAddress);
 
         var shippingQuote = await QuoteShippingAsync(
             request.ShippingServiceTier,
@@ -87,8 +84,11 @@ public class OrderService(
         decimal baseShippingFee = shippingQuote.BaseShippingFee;
 
         var priceLines = cart.Items
-            .Zip(products, (item, product) =>
-                new PriceLine(product.ProductId, product.CategoryId, product.UnitPrice, item.Quantity))
+            .Zip(
+                products,
+                (item, product) =>
+                    new PriceLine(product.ProductId, product.CategoryId, product.UnitPrice, item.Quantity)
+            )
             .ToList();
 
         var priceResult = await _pricingClient.CalculatePriceAsync(
@@ -103,7 +103,6 @@ public class OrderService(
         if (
             priceResult.FinalShippingFee < 0m || priceResult.FinalShippingFee > priceResult.BaseShippingFee
         ) {
-
             _logger.LogError(
                 "pricing returned a final shipping fee of {PricingFinal} against a base of "
               + "{PricingBase}, which is not a discount of its own quote. Refusing before an "
@@ -133,6 +132,10 @@ public class OrderService(
             throw new OrderAmountsUnchargeableException(string.Join("; ", unchargeable));
         }
 
+        if (priceResult.FinalTotal == 0m) {
+            throw new OrderTotalNotChargeableException();
+        }
+
         string uniqueSuffix = Guid.NewGuid().ToString("N")[..8].ToUpper();
         string orderNumber = $"ORD-{DateTime.UtcNow:yyyyMMdd}-{uniqueSuffix}";
 
@@ -154,10 +157,11 @@ public class OrderService(
             DeliveryLatitude = route.DropOff.Latitude,
             DeliveryLongitude = route.DropOff.Longitude,
             ParcelWeightGrams = parcelWeightGrams,
-            ShippingAddress = request.ShippingAddress,
-            RecipientName = request.RecipientName ?? string.Empty,
-            RecipientPhone = request.RecipientPhone ?? string.Empty,
-            IdempotencyKey = idempotencyKey,
+            ShippingAddress = recipient.ShippingAddress,
+            RecipientName = recipient.RecipientName,
+            RecipientPhone = recipient.RecipientPhone,
+            IdempotencyKey = key,
+            IdempotencyFingerprint = key is null ? null : fingerprint,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             Items = pricedItems
@@ -165,7 +169,20 @@ public class OrderService(
 
         _dbContext.Orders.Add(order);
         _dbContext.RecordPlaced(order, LifecycleActor.Buyer(customerPrincipalId));
-        await _dbContext.SaveChangesAsync();
+
+        try {
+            await _dbContext.SaveChangesAsync();
+        } catch (DbUpdateException e) when (
+            key is not null && UniqueViolation.On(e, OrderDbContext.IdempotencyKeyIndex)
+        ) {
+            _dbContext.ChangeTracker.Clear();
+
+            return await ReplayAsync(customerPrincipalId, key, fingerprint)
+                ?? throw new InvalidOperationException(
+                    $"the Idempotency-Key of {orderNumber} collided with an order that cannot be read back",
+                    e
+                );
+        }
 
         var plan = new CheckoutPlan(
             OrderNumber: orderNumber,
@@ -183,9 +200,9 @@ public class OrderService(
             TotalOrderAmount: priceResult.FinalTotal,
             MerchantAmount: merchantAmount,
             ShippingFeeAmount: priceResult.FinalShippingFee,
-            ShippingAddress: request.ShippingAddress,
-            RecipientName: request.RecipientName ?? string.Empty,
-            RecipientPhone: request.RecipientPhone ?? string.Empty,
+            ShippingAddress: recipient.ShippingAddress,
+            RecipientName: recipient.RecipientName,
+            RecipientPhone: recipient.RecipientPhone,
             FulfillmentLines: [.. cart.Items.Select(item =>
                 new FulfillmentLine(item.ProductId, item.Quantity)
             )]
@@ -197,15 +214,105 @@ public class OrderService(
             _dbContext.ChangeStatus(order, OrderStatus.CANCELLED, LifecycleActor.System, DateTime.UtcNow);
             await _dbContext.SaveChangesAsync();
 
-            throw new CheckoutFailedException(orderNumber, outcome.FailureReason ?? "a checkout step was refused");
+            throw new CheckoutFailedException(
+                orderNumber,
+                outcome.FailureReason ?? "a checkout step was refused",
+                outcome.RolledBack,
+                outcome.DependencyUnavailable,
+                replayed: false
+            );
         }
 
         _dbContext.ChangeStatus(order, OrderStatus.PAID, LifecycleActor.Buyer(customerPrincipalId), DateTime.UtcNow);
         await _dbContext.SaveChangesAsync();
 
-        await _cartService.ClearCartAsync(customerPrincipalId);
+        await ClearPaidCartAsync(customerPrincipalId, orderNumber);
 
         return MapToOrderResponse(order, null);
+    }
+
+    private static string? KeyOf(string? idempotencyKey) {
+        if (string.IsNullOrWhiteSpace(idempotencyKey)) {
+            return null;
+        }
+
+        if (idempotencyKey.Length > OrderEntity.IdempotencyKeyMaxLength) {
+            throw new FieldTooLongException("Idempotency-Key", OrderEntity.IdempotencyKeyMaxLength);
+        }
+
+        return idempotencyKey;
+    }
+
+    private async Task<OrderResponse?> ReplayAsync(string customerPrincipalId, string key, string fingerprint) {
+        var existing = await _dbContext.Orders
+            .Include(o => o.Items)
+            .FirstOrDefaultAsync(o => o.IdempotencyKey == key && o.CustomerPrincipalId == customerPrincipalId);
+
+        if (existing is null) {
+            return null;
+        }
+
+        if (existing.IdempotencyFingerprint is not null && existing.IdempotencyFingerprint != fingerprint) {
+            throw new IdempotencyKeyReusedException(existing.OrderNumber);
+        }
+
+        if (existing.Status == OrderStatus.PENDING_PAYMENT) {
+            throw new CheckoutInProgressException(existing.OrderNumber);
+        }
+
+        var saga = await _dbContext.CheckoutSagas
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.OrderNumber == existing.OrderNumber);
+
+        if (existing.Status == OrderStatus.CANCELLED && saga is not null && saga.State != SagaState.Completed) {
+            throw new CheckoutFailedException(
+                existing.OrderNumber,
+                saga.FailureReason ?? "a checkout step was refused",
+                rolledBack: saga.State == SagaState.Compensated,
+                dependencyUnavailable: false,
+                replayed: true
+            );
+        }
+
+        return MapToOrderResponse(existing, await DriverOfAsync(existing.OrderNumber));
+    }
+
+    private async Task ClearPaidCartAsync(string customerPrincipalId, string orderNumber) {
+        try {
+            await _cartService.ClearCartAsync(customerPrincipalId);
+        } catch (Exception e) when (e is not OperationCanceledException) {
+            _logger.LogWarning(
+                e,
+                "{Order} is PAID, but the buyer's cart could not be cleared; it still holds what was bought. "
+                  + "The order stands and the checkout answers it as placed",
+                orderNumber
+            );
+        }
+    }
+
+    private static void RequireLineQuantities(IReadOnlyList<CartItem> items) {
+        var outOfRange = items.FirstOrDefault(item =>
+            item.Quantity < CartItem.MinQuantity || item.Quantity > CartItem.MaxQuantity
+        );
+
+        if (outOfRange is not null) {
+            throw new CartLineQuantityOutOfRangeException(
+                outOfRange.ProductId,
+                outOfRange.Quantity,
+                CartItem.MinQuantity,
+                CartItem.MaxQuantity
+            );
+        }
+    }
+
+    private static void RefuseOwnProducts(string customerPrincipalId, IReadOnlyList<CatalogProduct> products) {
+        var own = products.FirstOrDefault(product =>
+            string.Equals(product.MerchantPrincipalId, customerPrincipalId, StringComparison.Ordinal)
+        );
+
+        if (own is not null) {
+            throw new OwnProductNotPurchasableException(own.ProductId);
+        }
     }
 
     private static long ParcelWeight(IReadOnlyList<CartItem> items, IReadOnlyList<CatalogProduct> products) {
@@ -239,21 +346,10 @@ public class OrderService(
         throw new AddressPlacementUnavailableException("the address came back neither placed nor refused");
     }
 
-    private static void RequireRecipient(CheckoutRequest request) {
-        if (string.IsNullOrWhiteSpace(request.ShippingAddress)) {
-            throw new RecipientMissingException("shippingAddress");
-        }
-        if (string.IsNullOrWhiteSpace(request.RecipientName)) {
-            throw new RecipientMissingException("recipientName");
-        }
-        if (string.IsNullOrWhiteSpace(request.RecipientPhone)) {
-            throw new RecipientMissingException("recipientPhone");
-        }
-    }
-
     private static string ResolveMerchantPrincipal(IReadOnlyList<CatalogProduct> products) {
-        if (products.Any(product => string.IsNullOrWhiteSpace(product.MerchantPrincipalId))) {
-            throw new CartItemsHaveNoMerchantException();
+        var merchantless = products.FirstOrDefault(product => string.IsNullOrWhiteSpace(product.MerchantPrincipalId));
+        if (merchantless is not null) {
+            throw new ProductHasNoMerchantException(merchantless.ProductId);
         }
 
         var merchants = products
@@ -369,7 +465,6 @@ public class OrderService(
                     $"{Name(option)} is offered as available and states why it is not: {option.UnavailableReason}"
                 );
             }
-
         }
 
         faults.AddRange(

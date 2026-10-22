@@ -1,6 +1,6 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0-preview@sha256:1d5e6f2c1ece7d5826bafc8a7f2d54db2c6478a0f2bd1c995d05a37c0be4783e AS build
 
-ARG PROTOC_VERSION=3.21.12-8.2ubuntu0.3
+ARG PROTOC_VERSION=3.21.12-8.2ubuntu0.4
 RUN apt-get update \
     && apt-get install -y --no-install-recommends "protobuf-compiler=${PROTOC_VERSION}" \
     && rm -rf /var/lib/apt/lists/* \

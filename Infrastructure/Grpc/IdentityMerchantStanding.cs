@@ -1,4 +1,3 @@
-using Grpc.Core;
 using Kinetix.OrderService.Application.Exceptions;
 using Kinetix.OrderService.Application.Ports;
 using IdentityProto = global::Identity.V1;
@@ -18,7 +17,7 @@ public class IdentityMerchantStanding(
             );
 
             return response.Found && response.MaySell;
-        } catch (RpcException e) {
+        } catch (Exception e) {
             throw new MerchantStandingUnknownException(merchantPrincipalId, e);
         }
     }

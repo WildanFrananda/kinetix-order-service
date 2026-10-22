@@ -17,13 +17,12 @@ namespace Kinetix.OrderService.Controllers;
 public class OrderController(IOrderService orderService) : ControllerBase {
     private readonly IOrderService _orderService = orderService;
 
-    private bool TryGetCallerPrincipal(out string customerPrincipalId) {
-        customerPrincipalId = User.FindFirst("sub")?.Value
-            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-            ?? string.Empty;
-        return !string.IsNullOrWhiteSpace(customerPrincipalId);
-    }
+    public const int MaxPageSize = 100;
 
+    private bool TryGetCallerPrincipal(out string customerPrincipalId) {
+        customerPrincipalId = CallerPrincipal.Of(User) ?? string.Empty;
+        return customerPrincipalId.Length > 0;
+    }
 
     [HttpPost("checkout")]
     public async Task<IActionResult> Checkout([FromBody] CheckoutRequest request) {
@@ -35,9 +34,65 @@ public class OrderController(IOrderService orderService) : ControllerBase {
 
         try {
             var order = await _orderService.CheckoutAsync(customerPrincipalId, request, idempotencyKey);
-            return CreatedAtAction(nameof(GetOrderById), new { orderId = order.Id }, order);
+            return Created(Url.Action(nameof(GetOrderById), new { orderId = order.Id }), order);
         } catch (RecipientMissingException ex) {
             return BadRequest(new { error = "RECIPIENT_REQUIRED", field = ex.Field, message = ex.Message });
+        } catch (FieldTooLongException ex) {
+            return BadRequest(new {
+                error = "FIELD_TOO_LONG",
+                field = ex.Field,
+                maxLength = ex.MaxLength,
+                message = ex.Message,
+            });
+        } catch (IdempotencyKeyReusedException ex) {
+            return UnprocessableEntity(new {
+                error = "IDEMPOTENCY_KEY_REUSED",
+                orderNumber = ex.OrderNumber,
+                message = "this Idempotency-Key was already used for a checkout with a different request. "
+                        + "Send a new key for a new checkout, or repeat the original request exactly.",
+            });
+        } catch (CheckoutInProgressException ex) {
+            return Conflict(new {
+                error = "CHECKOUT_IN_PROGRESS",
+                orderNumber = ex.OrderNumber,
+                message = "the checkout this Idempotency-Key started has not finished yet. Repeat the same "
+                        + "request with the same key shortly to learn how it ended.",
+            });
+        } catch (PricingRefusedException ex) {
+            return UnprocessableEntity(new {
+                error = "PRICING_REFUSED",
+                reason = ex.Reason,
+                message = "this order cannot be priced as it stands, so it was not placed. Nothing has "
+                        + "been charged or reserved.",
+            });
+        } catch (OrderTotalNotChargeableException) {
+            return UnprocessableEntity(new {
+                error = "ORDER_TOTAL_NOT_CHARGEABLE",
+                message = "this order comes to nothing, and an amount of zero cannot be charged or held, so it "
+                        + "was not placed. Nothing has been charged or reserved.",
+            });
+        } catch (OwnProductNotPurchasableException ex) {
+            return UnprocessableEntity(new {
+                error = "OWN_PRODUCT_NOT_PURCHASABLE",
+                productId = ex.ProductId,
+                message = "this cart holds a product you sell yourself, and a seller cannot buy its own "
+                        + "product. Remove it from the cart and check out again.",
+            });
+        } catch (CartLineQuantityOutOfRangeException ex) {
+            return UnprocessableEntity(new {
+                error = "CART_LINE_QUANTITY_OUT_OF_RANGE",
+                productId = ex.ProductId,
+                quantity = ex.Quantity,
+                minQuantity = ex.Minimum,
+                maxQuantity = ex.Maximum,
+                message = ex.Message + ". Change the quantity in the cart and check out again.",
+            });
+        } catch (CartUnavailableException) {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
+                error = "CART_UNAVAILABLE",
+                message = "your cart cannot be read right now, so this order was not placed. Nothing has "
+                        + "been charged or reserved — please try again shortly.",
+            });
         } catch (PricingUnavailableException) {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
                 error = "PRICING_UNAVAILABLE",
@@ -90,15 +145,15 @@ public class OrderController(IOrderService orderService) : ControllerBase {
                         + "unlikely to help.",
             });
         } catch (CheckoutFailedException ex) {
-            return Conflict(new {
-                error = "CHECKOUT_ROLLED_BACK",
-                orderNumber = ex.OrderNumber,
-                message = ex.Reason,
-            });
+            return CheckoutNotPlaced(ex);
         } catch (EmptyCartException ex) {
             return BadRequest(new { error = "CART_EMPTY", message = ex.Message });
-        } catch (CartItemsHaveNoMerchantException ex) {
-            return BadRequest(new { error = "CART_ITEMS_HAVE_NO_MERCHANT", message = ex.Message });
+        } catch (ProductHasNoMerchantException ex) {
+            return UnprocessableEntity(new {
+                error = "PRODUCT_HAS_NO_MERCHANT",
+                productId = ex.ProductId,
+                message = ex.Message
+            });
         } catch (MerchantMayNotSellException ex) {
             return Conflict(new { error = "MERCHANT_NOT_TRADING", message = ex.Message });
         } catch (MerchantStandingUnknownException ex) {
@@ -116,11 +171,15 @@ public class OrderController(IOrderService orderService) : ControllerBase {
             return NotFound(new { error = "PRODUCT_NOT_IN_CATALOG", productId = ex.ProductId, message = ex.Message });
         } catch (ProductHasNoUsablePriceException ex) {
             return UnprocessableEntity(new {
-                error = "PRODUCT_HAS_NO_USABLE_PRICE", productId = ex.ProductId, message = ex.Message
+                error = "PRODUCT_HAS_NO_USABLE_PRICE",
+                productId = ex.ProductId,
+                message = ex.Message
             });
         } catch (CatalogUnavailableException ex) {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
-                error = "CATALOG_UNAVAILABLE", productId = ex.ProductId, message = ex.Message
+                error = "CATALOG_UNAVAILABLE",
+                productId = ex.ProductId,
+                message = ex.Message
             });
         } catch (ProductWeightUnknownException ex) {
             return UnprocessableEntity(new {
@@ -166,18 +225,62 @@ public class OrderController(IOrderService orderService) : ControllerBase {
         }
     }
 
+    private ObjectResult CheckoutNotPlaced(CheckoutFailedException failure) {
+        var code = failure.RolledBack ? "CHECKOUT_ROLLED_BACK" : "CHECKOUT_ROLLBACK_PENDING";
+        var held = failure.RolledBack
+            ? "Everything it had reserved or charged has been given back."
+            : "Some of what it had reserved or charged is still being given back; that is retried "
+              + "automatically, and staff are alerted if it cannot be.";
+
+        if (failure.Replayed) {
+            return Conflict(new {
+                error = code,
+                orderNumber = failure.OrderNumber,
+                rolledBack = failure.RolledBack,
+                replayed = true,
+                reason = failure.Reason,
+                message = $"the checkout this Idempotency-Key started was not placed. {held} A new attempt "
+                        + "needs a new Idempotency-Key.",
+            });
+        }
+
+        if (failure.DependencyUnavailable) {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new {
+                error = "CHECKOUT_DEPENDENCY_UNAVAILABLE",
+                orderNumber = failure.OrderNumber,
+                rolledBack = failure.RolledBack,
+                reason = failure.Reason,
+                message = $"a service this checkout depends on did not answer, so it was not placed. {held} "
+                        + "Try again shortly with a new Idempotency-Key.",
+            });
+        }
+
+        return Conflict(new {
+            error = code,
+            orderNumber = failure.OrderNumber,
+            rolledBack = failure.RolledBack,
+            reason = failure.Reason,
+            message = $"this checkout was refused, so it was not placed. {held}",
+        });
+    }
+
     private static string PlacementReason(AddressPlacementFailure failure) => failure switch {
         AddressPlacementFailure.NotFound => "NOT_FOUND",
         AddressPlacementFailure.Ambiguous => "AMBIGUOUS",
         AddressPlacementFailure.OutOfServiceArea => "OUT_OF_SERVICE_AREA",
         AddressPlacementFailure.Insufficient => "INSUFFICIENT_ADDRESS",
         AddressPlacementFailure.TooVague => "TOO_VAGUE",
-        _ => throw new ArgumentOutOfRangeException(nameof(failure), failure, "no reason code for this placement failure")
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(failure),
+            failure,
+            "no reason code for this placement failure"
+        )
     };
 
     private static string PlacementMessage(AddressPlacementFailure failure) => failure switch {
         AddressPlacementFailure.NotFound => "Your shipping address could not be found on the map.",
-        AddressPlacementFailure.Ambiguous => "Your shipping address matches more than one place; add the area or postal code.",
+        AddressPlacementFailure.Ambiguous =>
+            "Your shipping address matches more than one place; add the area or postal code.",
         AddressPlacementFailure.OutOfServiceArea => "Your shipping address is outside the area we deliver to.",
         AddressPlacementFailure.Insufficient => "Your shipping address is incomplete; give the street, area and city.",
         AddressPlacementFailure.TooVague => "Your shipping address is too general to deliver to; give the street.",
@@ -194,13 +297,41 @@ public class OrderController(IOrderService orderService) : ControllerBase {
             return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
 
+        if (page < 1) {
+            return BadRequest(new { error = "PAGE_OUT_OF_RANGE", message = "page counts from 1" });
+        }
+
+        if (pageSize < 1 || pageSize > MaxPageSize) {
+            return BadRequest(new {
+                error = "PAGE_SIZE_OUT_OF_RANGE",
+                maxPageSize = MaxPageSize,
+                message = $"pageSize is from 1 to {MaxPageSize}",
+            });
+        }
+
         OrderStatus? parsedStatus = null;
-        if (!string.IsNullOrEmpty(status) && Enum.TryParse<OrderStatus>(status, true, out var resultStatus)) {
-            parsedStatus = resultStatus;
+        if (!string.IsNullOrEmpty(status)) {
+            var name = Enum.GetNames<OrderStatus>()
+                .FirstOrDefault(known => string.Equals(known, status, StringComparison.OrdinalIgnoreCase));
+
+            if (name is null) {
+                return BadRequest(new {
+                    error = "STATUS_UNKNOWN",
+                    allowedStatuses = Enum.GetNames<OrderStatus>(),
+                    message = $"'{status}' is not an order status",
+                });
+            }
+
+            parsedStatus = Enum.Parse<OrderStatus>(name);
         }
 
         var result = await _orderService.GetCustomerOrdersAsync(customerPrincipalId, parsedStatus, page, pageSize);
-        return Ok(result.Orders);
+        return Ok(new {
+            items = result.Orders,
+            page,
+            pageSize,
+            totalCount = result.TotalCount,
+        });
     }
 
     [HttpGet("{orderId:guid}")]
@@ -209,6 +340,7 @@ public class OrderController(IOrderService orderService) : ControllerBase {
         if (order == null || !MayRead(order)) {
             return NotFound(new { error = "ORDER_NOT_FOUND", message = $"Order '{orderId}' not found" });
         }
+
         return Ok(order);
     }
 

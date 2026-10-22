@@ -21,7 +21,8 @@ public class SagaAdminControllerTests {
         );
 
     private static List<SagaNeedingAttentionResponse> Body(
-        ActionResult<List<SagaNeedingAttentionResponse>> result) =>
+        ActionResult<List<SagaNeedingAttentionResponse>> result
+    ) =>
         (List<SagaNeedingAttentionResponse>)((OkObjectResult)result.Result!).Value!;
 
     [Fact]
@@ -120,5 +121,35 @@ public class SagaAdminControllerTests {
         var controller = new SagaAdminController(db);
         Assert.Empty(Body(await controller.NeedsAttention()));
         Assert.Equal(0, ((OkObjectResult)(await controller.NeedsAttentionCount(CancellationToken.None)).Result!).Value);
+    }
+
+    [Fact]
+    public async Task AWarehouseTaskStillHeldNamesTheCancelThatUndoesIt() {
+        using var db = NewDbContext();
+
+        var saga = new CheckoutSaga {
+            OrderNumber = "ORD-ADMIN-0004",
+            CustomerPrincipalId = Customer,
+            State = SagaState.Abandoned,
+            CompensationAttempts = 6,
+            NeedsAttentionAt = DateTime.UtcNow,
+            AbandonedAt = DateTime.UtcNow,
+        };
+        db.CheckoutSagas.Add(saga);
+        db.CheckoutSagaSteps.Add(new CheckoutSagaStep {
+            SagaId = saga.Id,
+            Name = SagaStepName.CreateFulfillmentOrder,
+            Reference = "901",
+            Quantity = 1,
+            MerchantPrincipalId = "3aa957c8-b802-4d58-b9fc-f7b76ce60fa3",
+            State = SagaStepState.Done,
+        });
+        await db.SaveChangesAsync();
+
+        var row = Assert.Single(Body(await new SagaAdminController(db).NeedsAttention()));
+        var step = Assert.Single(row.UnreleasedSteps);
+
+        Assert.Contains("CancelFulfillmentTask", step.Remedy);
+        Assert.DoesNotContain("no automated compensation", step.Remedy);
     }
 }

@@ -1,4 +1,5 @@
 using Common.V1;
+using Grpc.Core;
 using Kinetix.OrderService.Application.Exceptions;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Application.Results;
@@ -18,7 +19,6 @@ public class PricingGrpcClient(
     public async Task<IReadOnlyList<QuotedShippingResult>> QuoteShippingAsync(
         IReadOnlyList<ShippingJourney> journeys
     ) {
-
         if (journeys.Count == 0) {
             return [];
         }
@@ -37,15 +37,30 @@ public class PricingGrpcClient(
                 quote.BaseShippingFee is null ? 0m : FromMoney(quote.BaseShippingFee),
                 quote.Priced
             ))];
+        } catch (RpcException ex) when (IsRefusal(ex.StatusCode)) {
+            _logger.LogWarning(
+                "pricing refused QuoteShipping with {Code}: {Detail}",
+                ex.StatusCode,
+                ex.Status.Detail
+            );
+
+            throw new PricingRefusedException(ex.Status.Detail, ex);
         } catch (Exception ex) {
             _logger.LogError(
-                ex, "pricing did not answer QuoteShipping, so this checkout is refused rather "
+                ex,
+                "pricing did not answer QuoteShipping, so this checkout is refused rather "
                   + "than shipped at a fee nobody quoted"
             );
 
             throw new PricingUnavailableException(ex);
         }
     }
+
+    private static bool IsRefusal(StatusCode code) =>
+        code is StatusCode.InvalidArgument
+            or StatusCode.FailedPrecondition
+            or StatusCode.NotFound
+            or StatusCode.OutOfRange;
 
     private static Pricing.V1.ShippingQuoteRequest ToJourney(ShippingJourney journey) =>
         new() {
@@ -60,7 +75,6 @@ public class PricingGrpcClient(
         ShippingJourney? shipping,
         string merchantPrincipalId
     ) {
-
         if (lines.Count == 0 && shipping is null) {
             return new PriceCalculationResult(0m, 0m, 0m, 0m, 0m, 0m, []);
         }
@@ -102,11 +116,21 @@ public class PricingGrpcClient(
                 ))],
                 string.IsNullOrWhiteSpace(response.AppliedVoucher) ? null : response.AppliedVoucher
             );
+        } catch (RpcException ex) when (IsRefusal(ex.StatusCode)) {
+            _logger.LogWarning(
+                "pricing refused CalculatePrice with {Code}: {Detail}",
+                ex.StatusCode,
+                ex.Status.Detail
+            );
+
+            throw new PricingRefusedException(ex.Status.Detail, ex);
         } catch (Exception ex) {
             _logger.LogError(
-                ex, "pricing did not answer, so this checkout is refused rather than priced at "
+                ex,
+                "pricing did not answer, so this checkout is refused rather than priced at "
                   + "list; any voucher, discount or flash sale the customer expected cannot be "
-                  + "verified from here");
+                  + "verified from here"
+            );
 
             throw new PricingUnavailableException(ex);
         }

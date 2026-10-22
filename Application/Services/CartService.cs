@@ -1,103 +1,136 @@
-using System.Text.Json;
-using Microsoft.Extensions.Caching.Distributed;
+using Kinetix.OrderService.Application.Exceptions;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.DTOs.Requests;
+using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
 
 namespace Kinetix.OrderService.Application.Services;
 
-public class CartService(IDistributedCache cache, IProductDirectory products) : ICartService {
-    private readonly IDistributedCache _cache = cache;
-    private readonly IProductDirectory _products = products;
-    private readonly TimeSpan _cartTtl = TimeSpan.FromDays(14);
+public class CartService(ICartStore store, IProductDirectory products) : ICartService {
+    public const int MaxEditAttempts = 10;
 
-    private static string GetCartKey(string customerPrincipalId) => $"cart:principal:{customerPrincipalId}";
+    private static readonly TimeSpan CartTtl = TimeSpan.FromDays(14);
+
+    private readonly ICartStore _store = store;
+    private readonly IProductDirectory _products = products;
 
     public async Task<CustomerCart> GetCartAsync(string customerPrincipalId) {
-        var key = GetCartKey(customerPrincipalId);
-        var cachedJson = await _cache.GetStringAsync(key);
-
-        if (string.IsNullOrEmpty(cachedJson)) {
-            return new CustomerCart(customerPrincipalId);
-        }
-
-        var cart = JsonSerializer.Deserialize<CustomerCart>(cachedJson);
-        return cart ?? new CustomerCart(customerPrincipalId);
+        var stored = await _store.ReadAsync(customerPrincipalId);
+        return stored.Cart;
     }
 
     public async Task<CustomerCart> AddItemAsync(string customerPrincipalId, AddCartItemRequest request) {
+        RequireQuantity(request.ProductId, request.Quantity, CartItem.MinQuantity);
+
         var product = await _products.GetProductAsync(request.ProductId);
-
-        var cart = await GetCartAsync(customerPrincipalId);
-        var existingItem = cart.Items.FirstOrDefault(i => i.ProductId == product.ProductId);
-
-        if (existingItem != null) {
-            existingItem.Quantity += request.Quantity;
-            existingItem.ProductTitle = product.Title;
-            existingItem.UnitPrice = product.UnitPrice;
-            existingItem.CategoryId = product.CategoryId;
-            existingItem.MerchantPrincipalId = product.MerchantPrincipalId;
-        } else {
-            cart.Items.Add(new CartItem {
-                ProductId = product.ProductId,
-                ProductTitle = product.Title,
-                UnitPrice = product.UnitPrice,
-                Quantity = request.Quantity,
-                CategoryId = product.CategoryId,
-                MerchantPrincipalId = product.MerchantPrincipalId
-            });
+        if (string.Equals(product.MerchantPrincipalId, customerPrincipalId, StringComparison.Ordinal)) {
+            throw new OwnProductNotPurchasableException(product.ProductId);
         }
 
-        cart.UpdatedAt = DateTime.UtcNow;
-        await SaveCartAsync(cart);
-        return cart;
+        return await EditAsync(customerPrincipalId, cart => {
+            var existingItem = cart.Items.FirstOrDefault(i => i.ProductId == product.ProductId);
+
+            if (existingItem != null) {
+                long quantity = (long)existingItem.Quantity + request.Quantity;
+                if (quantity > CartItem.MaxQuantity) {
+                    throw new CartLineQuantityOutOfRangeException(
+                        product.ProductId,
+                        quantity,
+                        CartItem.MinQuantity,
+                        CartItem.MaxQuantity
+                    );
+                }
+
+                existingItem.Quantity = (int)quantity;
+                existingItem.ProductTitle = product.Title;
+                existingItem.UnitPrice = product.UnitPrice;
+                existingItem.CategoryId = product.CategoryId;
+                existingItem.MerchantPrincipalId = product.MerchantPrincipalId;
+            } else {
+                cart.Items.Add(new CartItem {
+                    ProductId = product.ProductId,
+                    ProductTitle = product.Title,
+                    UnitPrice = product.UnitPrice,
+                    Quantity = request.Quantity,
+                    CategoryId = product.CategoryId,
+                    MerchantPrincipalId = product.MerchantPrincipalId
+                });
+            }
+
+            return true;
+        });
     }
 
-    public async Task<CustomerCart> UpdateItemQuantityAsync(string customerPrincipalId, string productId, int quantity) {
-        var cart = await GetCartAsync(customerPrincipalId);
-        var item = cart.Items.FirstOrDefault(i => i.ProductId == productId);
+    public async Task<CustomerCart> UpdateItemQuantityAsync(
+        string customerPrincipalId,
+        string productId,
+        int quantity
+    ) {
+        RequireQuantity(productId, quantity, 0);
 
-        if (item != null) {
-            if (quantity <= 0) {
+        return await EditAsync(customerPrincipalId, cart => {
+            var item = cart.Items.FirstOrDefault(i => i.ProductId == productId);
+            if (item is null) {
+                return false;
+            }
+
+            if (quantity == 0) {
                 cart.Items.Remove(item);
             } else {
                 item.Quantity = quantity;
             }
 
-            cart.UpdatedAt = DateTime.UtcNow;
-            await SaveCartAsync(cart);
+            return true;
+        });
+    }
+
+    public Task<CustomerCart> RemoveItemAsync(string customerPrincipalId, string productId) =>
+        EditAsync(customerPrincipalId, cart => cart.Items.RemoveAll(i => i.ProductId == productId) > 0);
+
+    public Task<CustomerCart> ApplyVoucherAsync(string customerPrincipalId, string voucherCode) {
+        if (voucherCode.Length > OrderEntity.AppliedVoucherMaxLength) {
+            throw new FieldTooLongException("voucherCode", OrderEntity.AppliedVoucherMaxLength);
         }
 
-        return cart;
+        return EditAsync(customerPrincipalId, cart => {
+            cart.AppliedVoucherCode = voucherCode;
+            return true;
+        });
     }
 
-    public async Task<CustomerCart> RemoveItemAsync(string customerPrincipalId, string productId) {
-        var cart = await GetCartAsync(customerPrincipalId);
-        cart.Items.RemoveAll(i => i.ProductId == productId);
-        cart.UpdatedAt = DateTime.UtcNow;
-        await SaveCartAsync(cart);
-        return cart;
-    }
+    public Task<CustomerCart> RemoveVoucherAsync(string customerPrincipalId) =>
+        EditAsync(customerPrincipalId, cart => {
+            if (cart.AppliedVoucherCode is null) {
+                return false;
+            }
 
-    public async Task<CustomerCart> ApplyVoucherAsync(string customerPrincipalId, string voucherCode) {
-        var cart = await GetCartAsync(customerPrincipalId);
-        cart.AppliedVoucherCode = voucherCode;
-        cart.UpdatedAt = DateTime.UtcNow;
-        await SaveCartAsync(cart);
-        return cart;
-    }
+            cart.AppliedVoucherCode = null;
+            return true;
+        });
 
     public async Task ClearCartAsync(string customerPrincipalId) {
-        var key = GetCartKey(customerPrincipalId);
-        await _cache.RemoveAsync(key);
+        await _store.DeleteAsync(customerPrincipalId);
     }
 
-    private async Task SaveCartAsync(CustomerCart cart) {
-        var key = GetCartKey(cart.CustomerPrincipalId);
-        var json = JsonSerializer.Serialize(cart);
-        var options = new DistributedCacheEntryOptions {
-            AbsoluteExpirationRelativeToNow = _cartTtl
-        };
-        await _cache.SetStringAsync(key, json, options);
+    private static void RequireQuantity(string productId, int quantity, int minimum) {
+        if (quantity < minimum || quantity > CartItem.MaxQuantity) {
+            throw new QuantityOutOfRangeException(productId, quantity, minimum, CartItem.MaxQuantity);
+        }
+    }
+
+    private async Task<CustomerCart> EditAsync(string customerPrincipalId, Func<CustomerCart, bool> edit) {
+        for (var attempt = 1; attempt <= MaxEditAttempts; attempt++) {
+            var stored = await _store.ReadAsync(customerPrincipalId);
+            if (!edit(stored.Cart)) {
+                return stored.Cart;
+            }
+
+            stored.Cart.UpdatedAt = DateTime.UtcNow;
+            if (await _store.TryReplaceAsync(customerPrincipalId, stored.Cart, stored.Version, CartTtl)) {
+                return stored.Cart;
+            }
+        }
+
+        throw new CartBusyException(MaxEditAttempts);
     }
 }

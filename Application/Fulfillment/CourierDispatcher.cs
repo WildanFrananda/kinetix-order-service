@@ -85,8 +85,8 @@ public class CourierDispatcher(
                 },
                 ParcelWeightGrams = order.ParcelWeightGrams ?? 0,
             });
-        } catch (RpcException e) {
-            Defer(dispatch, $"the fleet could not be reached: {e.Status.Detail}");
+        } catch (Exception e) when (e is not OperationCanceledException) {
+            Defer(dispatch, $"the fleet could not be reached: {FaultOf(e)}");
             return false;
         }
 
@@ -117,6 +117,8 @@ public class CourierDispatcher(
         return true;
     }
 
+    private static string FaultOf(Exception e) => e is RpcException rpc ? rpc.Status.Detail : e.Message;
+
     private async Task<bool> RecordAwbAsync(CourierDispatch dispatch) {
         StepResult recorded;
         try {
@@ -126,10 +128,10 @@ public class CourierDispatcher(
                 dispatch.OrderNumber,
                 dispatch.AwbNumber ?? string.Empty
             );
-        } catch (RpcException e) {
+        } catch (Exception e) when (e is not OperationCanceledException) {
             Defer(
                 dispatch,
-                $"the courier is assigned and the warehouse could not be told the tracking number: {e.Status.Detail}"
+                $"the courier is assigned and the warehouse could not be told the tracking number: {FaultOf(e)}"
             );
 
             return false;

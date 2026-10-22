@@ -3,7 +3,6 @@ using Kinetix.OrderService.Application.Delivery;
 using Kinetix.OrderService.Application.Returns;
 using Kinetix.OrderService.Application.Completion;
 using System.Security.Cryptography.X509Certificates;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Kinetix.OrderService.Application.Checkout;
@@ -19,9 +18,11 @@ using Kinetix.OrderService.Infrastructure.Http;
 using Kinetix.OrderService.Infrastructure.Lifecycle;
 using Kinetix.OrderService.Infrastructure.Observability;
 using Kinetix.OrderService.Infrastructure.Persistence;
+using Kinetix.OrderService.Infrastructure.Redis;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 using Prometheus;
+using StackExchange.Redis;
 
 EnvLoader.Load();
 
@@ -91,10 +92,10 @@ var redisConnectionString = builder.Configuration["REDIS_CONNECTION_STRING"]
     ?? builder.Configuration.GetConnectionString("Redis")
     ?? throw new InvalidOperationException("REDIS_CONNECTION_STRING environment variable is required and missing.");
 
-builder.Services.AddStackExchangeRedisCache(options => {
-    options.Configuration = redisConnectionString;
-    options.InstanceName = "KinetixOrder:";
-});
+var redisOptions = ConfigurationOptions.Parse(redisConnectionString);
+redisOptions.AbortOnConnectFail = false;
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisOptions));
+builder.Services.AddSingleton<ICartStore, RedisCartStore>();
 
 var pricingGrpcUrl = builder.Configuration["PRICING_GRPC_URL"]
     ?? throw new InvalidOperationException("PRICING_GRPC_URL environment variable is required and missing.");
@@ -127,7 +128,8 @@ builder.Services.AddGrpcClient<PricingService.PricingServiceClient>(options => {
     options.Address = pricingAddress;
 }).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "pricing"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
-      pricingAddress.Host, services.GetRequiredService<KinetixMetrics>()
+      pricingAddress.Host,
+      services.GetRequiredService<KinetixMetrics>()
   ))
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
@@ -157,7 +159,8 @@ builder.Services.AddGrpcClient<Shipping.V1.ShippingService.ShippingServiceClient
     options.Address = matchingAddress;
 }).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "matching"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
-      matchingAddress.Host, services.GetRequiredService<KinetixMetrics>()
+      matchingAddress.Host,
+      services.GetRequiredService<KinetixMetrics>()
   ))
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
@@ -169,7 +172,8 @@ builder.Services.AddGrpcClient<Catalog.V1.CatalogService.CatalogServiceClient>(o
     options.Address = catalogAddress;
 }).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "catalog"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
-      catalogAddress.Host, services.GetRequiredService<KinetixMetrics>()
+      catalogAddress.Host,
+      services.GetRequiredService<KinetixMetrics>()
   ))
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
@@ -185,7 +189,8 @@ builder.Services.AddGrpcClient<Fulfillment.V1.BinStockService.BinStockServiceCli
     options.Address = warehouseAddress;
 }).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "warehouse"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
-      warehouseAddress.Host, services.GetRequiredService<KinetixMetrics>()
+      warehouseAddress.Host,
+      services.GetRequiredService<KinetixMetrics>()
   ))
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
@@ -194,7 +199,8 @@ builder.Services.AddGrpcClient<Fulfillment.V1.FulfillmentTaskService.Fulfillment
     options.Address = warehouseAddress;
 }).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "warehouse"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
-      warehouseAddress.Host, services.GetRequiredService<KinetixMetrics>()
+      warehouseAddress.Host,
+      services.GetRequiredService<KinetixMetrics>()
   ))
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
@@ -203,7 +209,8 @@ builder.Services.AddGrpcClient<Fleet.V1.CourierTelemetryService.CourierTelemetry
     options.Address = matchingAddress;
 }).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "matching"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
-      matchingAddress.Host, services.GetRequiredService<KinetixMetrics>()
+      matchingAddress.Host,
+      services.GetRequiredService<KinetixMetrics>()
   ))
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
@@ -212,7 +219,8 @@ builder.Services.AddGrpcClient<Payment.V1.PaymentService.PaymentServiceClient>(o
     options.Address = paymentAddress;
 }).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "payment"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
-      paymentAddress.Host, services.GetRequiredService<KinetixMetrics>()
+      paymentAddress.Host,
+      services.GetRequiredService<KinetixMetrics>()
   ))
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
@@ -221,7 +229,8 @@ builder.Services.AddGrpcClient<Identity.V1.IdentityService.IdentityServiceClient
     options.Address = identityAddress;
 }).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "identity"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
-      identityAddress.Host, services.GetRequiredService<KinetixMetrics>()
+      identityAddress.Host,
+      services.GetRequiredService<KinetixMetrics>()
   ))
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
@@ -230,7 +239,8 @@ builder.Services.AddGrpcClient<Geo.V1.GeocodingService.GeocodingServiceClient>(o
     options.Address = identityAddress;
 }).ConfigurePrimaryHttpMessageHandler(services => MeshHandler(services, "identity"))
   .AddInterceptor(services => new GrpcClientCallMetricsInterceptor(
-      identityAddress.Host, services.GetRequiredService<KinetixMetrics>()
+      identityAddress.Host,
+      services.GetRequiredService<KinetixMetrics>()
   ))
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
@@ -248,21 +258,12 @@ builder.Services.AddSingleton<GrpcServerCallMetricsInterceptor>();
 builder.Services.AddSingleton<PeerAuthorizationInterceptor>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<JwksKeyProvider>();
-
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options => AccessTokenValidation.Apply(
-        options,
-        builder.Configuration["JWT_ISSUER"]
-            ?? throw new InvalidOperationException("JWT_ISSUER is required and has no default."),
-        builder.Configuration["JWT_AUDIENCE"]
-            ?? throw new InvalidOperationException("JWT_AUDIENCE is required and has no default.")
-    ));
-
-builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
-    .Configure<JwksKeyProvider>((options, jwks) => {
-        options.TokenValidationParameters.IssuerSigningKeyResolver = jwks.Resolve;
-    });
+builder.Services.AddAccessTokens(
+    builder.Configuration["JWT_ISSUER"]
+        ?? throw new InvalidOperationException("JWT_ISSUER is required and has no default."),
+    builder.Configuration["JWT_AUDIENCE"]
+        ?? throw new InvalidOperationException("JWT_AUDIENCE is required and has no default.")
+);
 builder.Services.AddAuthorizationBuilder().AddOrderPolicies();
 
 builder.Services.AddScoped<IPricingClient, PricingGrpcClient>();
@@ -290,6 +291,8 @@ builder.Services.AddSingleton(CompensationPolicy.FromConfiguration(builder.Confi
 builder.Services.AddScoped<ISagaLeaseStore, SagaLeaseStore>();
 
 builder.Services.AddScoped<CheckoutSagaRunner>();
+builder.Services.AddScoped<CompletedCheckoutFinisher>();
+builder.Services.AddScoped<SagalessCheckoutCanceller>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 
 builder.Services.AddHostedService<StuckSagaSweeper>();
@@ -356,13 +359,18 @@ static async Task WarmJwksAsync(WebApplication app) {
             var delay = TimeSpan.FromSeconds(attempt * 2);
             app.Logger.LogWarning(
                 "identity's JWKS is not answering yet ({Message}); retrying in {Delay}s ({Attempt}/{Attempts})",
-                ex.Message, delay.TotalSeconds, attempt, attempts
+                ex.Message,
+                delay.TotalSeconds,
+                attempt,
+                attempts
             );
             await Task.Delay(delay);
         } catch (Exception ex) {
             app.Logger.LogError(
-                ex, "identity's JWKS did not answer in {Attempts} attempts; starting without keys, "
-                  + "which means the first authenticated request will fetch them", attempts
+                ex,
+                "identity's JWKS did not answer in {Attempts} attempts; starting without keys, "
+                  + "which means the first authenticated request will fetch them",
+                attempts
             );
         }
     }

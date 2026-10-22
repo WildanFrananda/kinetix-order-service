@@ -156,6 +156,105 @@ the notary uses) ago, and one fetch at a time. Until 2026-10-19 every request ca
 the JWKS, synchronously, so a stream of forged tokens with made-up key ids made identity answer once per
 request. A key identity publishes is found within ten seconds of the first token that carries it.
 
+## Tokens are read as identity wrote them
+
+`AccessTokenValidation` sets `MapInboundClaims = false`, so `sub` stays `sub` and `role` stays `role`, the
+role claim type. Until 2026-10-21 JwtBearer renamed `role` to the long `ClaimTypes.Role` URI while
+`RoleClaimType` said `role`: `IsInRole("admin")` was false for every admin, so the saga and return queues,
+`complete` and `reject` answered 403 and an admin read of another buyer's order 404. The tests built claims
+by hand and never saw it; `OrderApiAuthTests` now sends identity-shaped RS256 tokens through the real handler,
+wired by the same `AddAccessTokens` as `Program.cs`.
+
+A token whose key order does not hold, while identity's JWKS could not be fetched, answers 503
+`IDENTITY_UNAVAILABLE` (`JwksKeyProvider.CannotVouchFor`): nobody could say whether it was valid. A key
+identity does not publish while identity answers is still 401.
+
+## Checkout replays its Idempotency-Key
+
+A blank key is no key: it is stored as NULL, which the unique index on `(customer_principal_id,
+idempotency_key)` allows many of. A key is kept with `idempotency_fingerprint`, a SHA-256 of the request
+body (`CheckoutFingerprint`), and a repeat answers what the first one became: `PENDING_PAYMENT` is 409
+`CHECKOUT_IN_PROGRESS`; a saga that did not complete is 409 `CHECKOUT_ROLLED_BACK` or
+`CHECKOUT_ROLLBACK_PENDING` with `replayed: true`; anything else is the order, 201. A different body under
+the same key is 422 `IDEMPOTENCY_KEY_REUSED`; rows from before the fingerprint are not compared. A replayed
+outage is 409, not 503: the key is spent, and a client that retried a 503 with it would be told 503
+forever. Two checkouts racing on one key meet at the insert, before any saga step; the loser catches the
+unique violation (`UniqueViolation.On`) and replays the winner.
+
+## A failed checkout says whether everything came back
+
+`CHECKOUT_ROLLED_BACK` (409) only when compensation ended `Compensated`; a saga left `Stuck`, `Abandoned`,
+or unwound by another worker is `CHECKOUT_ROLLBACK_PENDING`. When a forward step threw rather than refused
+— a dependency did not answer — the answer is 503 `CHECKOUT_DEPENDENCY_UNAVAILABLE` with `rolledBack`.
+The 500 body no longer claims nothing happened: it cannot know.
+
+## A completed checkout ends PAID
+
+Clearing the cart after `PAID` is best effort and logged; it never fails the request, which would have
+told a charged buyer to retry. If the `PAID` write itself fails after the saga completed, the order would
+sit `PENDING_PAYMENT` with the escrow held, and the sweeper looks only at sagas still unwinding.
+`CompletedCheckoutFinisher` runs on every `StuckSagaSweeper` pass and marks `PAID` (actor `SYSTEM`) each
+`PENDING_PAYMENT` order whose saga has been `Completed` for longer than the sweeper's five-minute grace,
+under the order row lock; `ix_orders_pending_payment` keeps that scan small.
+
+It marks `PAID` only a saga that carries every step the runner always takes: at least one `ReserveStock`
+(one per cart line), exactly one `CreateEscrowHold` and exactly one `CreateFulfillmentOrder`, all `Done`.
+`RedeemVoucher` (only when pricing applied a voucher) and `AllocateFlashSaleStock` (one per flash-sale line)
+are optional. Until fulfillment existed a successful checkout never set `PAID` and created no warehouse task,
+so production kept `ORD-20260917-E4C9664A`, from v0.1.0: `Completed` with `ReserveStock` and
+`CreateEscrowHold` only, the buyer's money held and nothing to pack. Marking it `PAID` would leave it there for
+good. Such a saga is flagged instead (`needs_attention_at`, code `COMPLETED_WITHOUT_FULFILLMENT`, the reason in
+`failure_reason`), logged once, and left out of every later pass; its order stays `PENDING_PAYMENT`. It shows in
+`GET /api/v1/orders/sagas/needs-attention` with its held steps and their remedies. The sagaless canceller skips it
+(it has a saga row), and the compensation sweep never claims a `Completed` saga.
+
+An order can also sit `PENDING_PAYMENT` with no saga row at all, when the process died between inserting
+the order and inserting its saga; its key then replayed `CHECKOUT_IN_PROGRESS` forever.
+`SagalessCheckoutCanceller`, on the same sweep, cancels such an order (actor `SYSTEM`, under the order row
+lock) once it is 15 minutes old: three times the sweeper's five-minute rule for a checkout that has stopped,
+and far beyond the one INSERT that separates the two rows (Npgsql's 30-second command timeout, 25 seconds of
+shutdown budget) and beyond a whole checkout, whose calls each have a 5-second gRPC deadline and the
+geocode its own. Nothing was charged: every saga step is recorded before its call goes out, and steps hang
+off the saga row, so no saga row means no call was made. It cancels only when no saga row exists, and in the
+same transaction inserts a `Compensated` saga carrying the reason. That row makes the key replay as rolled
+back, and the unique index on `checkout_sagas.order_number` decides a race with a checkout still inserting
+its saga: whichever insert commits first wins, and a cancel that loses leaves the order alone.
+
+Every gRPC client turns a fault that is not an `RpcException` — the mesh handler failing before the call goes
+out — into the same "could not ask" answer as an outage (503, or a deferred retry for the courier
+dispatcher), as `ShippingGrpcClient` always did.
+
+## What checkout refuses before it asks anyone
+
+Lengths are the columns' (`Order.*MaxLength`: address 500, name 128, phone 32, voucher 50, key 100) and are
+400 `FIELD_TOO_LONG`, so Postgres never turns them into a 500 after geocoding and pricing. A cart line holds
+1 to 999 (`CartItem.MaxQuantity`), at add-to-cart and again at checkout, because a cart may predate the
+check. A buyer cannot buy a product whose merchant principal is their own principal (the user's ruling,
+2026-10-21): 422 `OWN_PRODUCT_NOT_PURCHASABLE` at add-to-cart and at checkout. A total of exactly zero is
+422 `ORDER_TOTAL_NOT_CHARGEABLE` before any saga step: payment refuses to hold nothing. A shipping-only
+total is above zero and is charged.
+
+Pricing's `InvalidArgument`, `FailedPrecondition`, `NotFound` and `OutOfRange` are its refusal, 422
+`PRICING_REFUSED` with its reason; every other failure is 503 `PRICING_UNAVAILABLE`. Catalog's `NotFound`
+and `InvalidArgument` are `PRODUCT_NOT_IN_CATALOG`; a product it names no merchant for is 422
+`PRODUCT_HAS_NO_MERCHANT`.
+
+## The cart is edited by compare-and-set
+
+`RedisCartStore` keeps the cart in the hash `IDistributedCache` used (`KinetixOrder:cart:principal:{id}`,
+field `data`), so carts written before 2026-10-21 still read, and adds a `ver` field. A write is a Lua
+script that replaces `data` and bumps `ver` only if `ver` is still what the edit read; `CartService` re-reads
+and re-applies a refused edit up to `MaxEditAttempts` (10) times, then answers 409 `CART_BUSY`. A
+read-modify-write with no check lost concurrent adds: twenty parallel adds of one left one. Optimistic
+rather than a lock: no lock to leak past its expiry while a catalog call is slow, and a refused write costs
+one re-read. Ten attempts are enough for ten concurrent edits of one cart, because each refusal means another
+edit landed. An unreachable Redis is 503 `CART_UNAVAILABLE`.
+
+## The 201 Location is relative
+
+Kong does not preserve the host, so `CreatedAtAction` named `kinetix-order-service:8001`. Checkout answers
+`Location: /api/v1/orders/{id}`, the path Kong routes unchanged.
+
 ## The suite runs in CI, against Postgres
 
 Until 2026-10-16 neither CI ran `dotnet test`. Both now do, with a Postgres service and
@@ -164,4 +263,5 @@ collection (`PostgresDatabase`, `PostgresCollection`), which also runs them one 
 against a fresh database, each class migrated it at once and they failed on each other's half-built schema.
 They still return early without `KINETIX_TEST_POSTGRES`, so `PostgresIsConfiguredTests` fails when `CI` is set
 and the database is not. Locally, start a Postgres on a free port and set the variable; a port another
-container already holds makes the tests talk to that database instead.
+container already holds makes the tests talk to that database instead. The cart's Redis tests work the
+same way with `KINETIX_TEST_REDIS` (`host:port`) and `RedisIsConfiguredTests`.

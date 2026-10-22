@@ -72,12 +72,16 @@ test:
   services:
     - name: postgres:16-alpine
       alias: postgres
+    # The cart's compare-and-set is a Lua script; only a real Redis can say whether it holds.
+    - name: redis:7.2-alpine
+      alias: redis
   variables:
     POSTGRES_USER: ci
     POSTGRES_PASSWORD: ci-ephemeral-not-a-deployed-credential
     POSTGRES_DB: kinetix_order_test
     POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     KINETIX_TEST_POSTGRES: "Host=postgres;Port=5432;Database=kinetix_order_test;Username=ci;Password=ci-ephemeral-not-a-deployed-credential"
+    KINETIX_TEST_REDIS: "redis:6379"
   script:
     - sh bin/sync-contracts
     - dotnet restore --locked-mode Kinetix.OrderService.csproj

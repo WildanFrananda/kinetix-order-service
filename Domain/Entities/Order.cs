@@ -7,6 +7,12 @@ namespace Kinetix.OrderService.Domain.Entities;
 [Table("orders")]
 public class Order {
     public const int ServiceTierMaxLength = 50;
+    public const int AppliedVoucherMaxLength = 50;
+    public const int ShippingAddressMaxLength = 500;
+    public const int RecipientNameMaxLength = 128;
+    public const int RecipientPhoneMaxLength = 32;
+    public const int IdempotencyKeyMaxLength = 100;
+    public const int IdempotencyFingerprintLength = 64;
 
     [Key]
     [Column("id")]
@@ -38,7 +44,7 @@ public class Order {
     [Column("discount_amount", TypeName = "decimal(18,2)")]
     public decimal DiscountAmount { get; set; }
 
-    [MaxLength(50)]
+    [MaxLength(AppliedVoucherMaxLength)]
     [Column("applied_voucher")]
     public string? AppliedVoucher { get; set; }
 
@@ -80,23 +86,27 @@ public class Order {
     public ulong ChangeTransactionId { get; set; }
 
     [Required]
-    [MaxLength(500)]
+    [MaxLength(ShippingAddressMaxLength)]
     [Column("shipping_address")]
     public string ShippingAddress { get; set; } = string.Empty;
 
     [Required]
-    [MaxLength(128)]
+    [MaxLength(RecipientNameMaxLength)]
     [Column("recipient_name")]
     public string RecipientName { get; set; } = string.Empty;
 
     [Required]
-    [MaxLength(32)]
+    [MaxLength(RecipientPhoneMaxLength)]
     [Column("recipient_phone")]
     public string RecipientPhone { get; set; } = string.Empty;
 
-    [MaxLength(100)]
+    [MaxLength(IdempotencyKeyMaxLength)]
     [Column("idempotency_key")]
     public string? IdempotencyKey { get; set; }
+
+    [MaxLength(IdempotencyFingerprintLength)]
+    [Column("idempotency_fingerprint")]
+    public string? IdempotencyFingerprint { get; set; }
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

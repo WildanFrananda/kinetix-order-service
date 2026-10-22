@@ -9,7 +9,9 @@ using GeoProto = global::Geo.V1;
 namespace Kinetix.OrderService.Tests;
 
 public class IdentityAddressGeocoderTests {
-    private sealed class Geocoding(Func<GeoProto.GeocodeAddressResponse> answer) : GeoProto.GeocodingService.GeocodingServiceClient {
+    private sealed class Geocoding(
+        Func<GeoProto.GeocodeAddressResponse> answer
+    ) : GeoProto.GeocodingService.GeocodingServiceClient {
         public GeoProto.GeocodeAddressRequest? LastRequest { get; private set; }
 
         public DateTime? LastDeadline { get; private set; }
@@ -53,7 +55,8 @@ public class IdentityAddressGeocoderTests {
     [InlineData(GeoProto.GeocodePrecision.Street)]
     [InlineData(GeoProto.GeocodePrecision.Suburb)]
     public async Task AnAddressPlacedCloselyEnoughIsAPoint(GeoProto.GeocodePrecision precision) {
-        var placement = await Geocoder(new Geocoding(() => PlacedAt(precision))).PlaceAsync("Jl. Sudirman No. 45, Jakarta");
+        var geocoder = Geocoder(new Geocoding(() => PlacedAt(precision)));
+        var placement = await geocoder.PlaceAsync("Jl. Sudirman No. 45, Jakarta");
 
         Assert.NotNull(placement.Point);
         Assert.Equal(-6.2088, placement.Point.Latitude);
@@ -123,5 +126,16 @@ public class IdentityAddressGeocoderTests {
         Assert.Equal("Jl. Sudirman No. 45, Jakarta", client.LastRequest!.Address.StreetAddress);
         Assert.NotNull(client.LastDeadline);
         Assert.InRange(client.LastDeadline!.Value, before.AddSeconds(9), DateTime.UtcNow.AddSeconds(10));
+    }
+
+    [Fact]
+    public async Task AFaultBeforeIdentityIsReachedIsUnavailableNotABadAddress() {
+        var unreachable = new Geocoding(() =>
+            throw new InvalidOperationException("the mesh handler has no client certificate")
+        );
+
+        await Assert.ThrowsAsync<AddressPlacementUnavailableException>(() =>
+            Geocoder(unreachable).PlaceAsync("Jl. Sudirman No. 45, Jakarta")
+        );
     }
 }
