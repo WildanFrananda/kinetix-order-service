@@ -26,7 +26,9 @@ public class CheckoutSagaRunnerTests {
     private const string FlashSale = "7d2c1b90-4e35-4a1f-9c88-15b0e6a4f302";
 
     private static CheckoutPlan PlanWith(
-        string? voucher, string[] skus, params FlashSaleClaim[] claims
+        string? voucher,
+        string[] skus,
+        params FlashSaleClaim[] claims
     ) => new(
         OrderNumber: "ORD-TEST-0001",
         CustomerPrincipalId: Customer,
@@ -83,8 +85,15 @@ public class CheckoutSagaRunnerTests {
             .ReturnsAsync(StepResult.Ok());
 
         var escrow = new Mock<IEscrowClient>();
-        escrow.Setup(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
+        escrow.Setup(c => c.CreateHoldAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string?>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>()
+        ))
             .ReturnsAsync(StepResult.Ok());
         escrow.Setup(c => c.RefundHoldAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
@@ -96,8 +105,11 @@ public class CheckoutSagaRunnerTests {
 
     private static Mock<IFulfillmentClient> AcceptingFulfillment() {
         var mock = new Mock<IFulfillmentClient>();
-        mock.Setup(c => c.CreateTaskAsync(It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<IReadOnlyList<FulfillmentLine>>()))
+        mock.Setup(c => c.CreateTaskAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<IReadOnlyList<FulfillmentLine>>()
+        ))
             .ReturnsAsync(new FulfillmentCreated(StepResult.Ok(), "901"));
         mock.Setup(c => c.CancelTaskAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Ok());
@@ -116,7 +128,11 @@ public class CheckoutSagaRunnerTests {
     ) {
         var effectivePolicy = policy ?? new CompensationPolicy();
         return new CheckoutSagaRunner(
-            db, v.Object, f.Object, s.Object, e.Object,
+            db,
+            v.Object,
+            f.Object,
+            s.Object,
+            e.Object,
             (fulfilment ?? AcceptingFulfillment()).Object,
             leases ?? new FakeSagaLeaseStore(db, effectivePolicy),
             effectivePolicy,
@@ -143,10 +159,14 @@ public class CheckoutSagaRunnerTests {
             .RunAsync(PlanWith(null, ["SKU-1"]));
 
         Assert.True(outcome.Succeeded);
-        fulfilment.Verify(c => c.CreateTaskAsync(
-            Merchant, "ORD-TEST-0001",
-            It.Is<IReadOnlyList<FulfillmentLine>>(l => l.Count == 1 && l[0].Sku == "SKU-1")
-        ), Times.Once);
+        fulfilment.Verify(
+            c => c.CreateTaskAsync(
+                Merchant,
+                "ORD-TEST-0001",
+                It.Is<IReadOnlyList<FulfillmentLine>>(l => l.Count == 1 && l[0].Sku == "SKU-1")
+            ),
+            Times.Once
+        );
     }
 
     [Fact]
@@ -154,8 +174,11 @@ public class CheckoutSagaRunnerTests {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
         var fulfilment = new Mock<IFulfillmentClient>();
-        fulfilment.Setup(c => c.CreateTaskAsync(It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<IReadOnlyList<FulfillmentLine>>()))
+        fulfilment.Setup(c => c.CreateTaskAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<IReadOnlyList<FulfillmentLine>>()
+        ))
             .ReturnsAsync(new FulfillmentCreated(StepResult.Refused("that merchant is unknown here"), string.Empty));
 
         var outcome = await Runner(db, voucher, flash, stock, escrow, fulfilment: fulfilment)
@@ -226,6 +249,8 @@ public class CheckoutSagaRunnerTests {
 
         Assert.False(outcome.Succeeded);
         Assert.Contains("SKU-2", outcome.FailureReason);
+        Assert.True(outcome.RolledBack);
+        Assert.False(outcome.DependencyUnavailable);
 
         var saga = await db.CheckoutSagas.SingleAsync();
         Assert.Equal(SagaState.Compensated, saga.State);
@@ -234,8 +259,10 @@ public class CheckoutSagaRunnerTests {
         stock.Verify(c => c.ReleaseStockAsync(Merchant, "SKU-1", 1, "ORD-TEST-0001"), Times.Once);
 
         stock.Verify(c => c.ReleaseStockAsync(Merchant, "SKU-2", 1, "ORD-TEST-0001"), Times.Never);
-        Assert.Equal(SagaStepState.Failed,
-            (await db.CheckoutSagaSteps.SingleAsync(s => s.Reference == "SKU-2")).State);
+        Assert.Equal(
+            SagaStepState.Failed,
+            (await db.CheckoutSagaSteps.SingleAsync(s => s.Reference == "SKU-2")).State
+        );
 
         escrow.Verify(c => c.RefundHoldAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }
@@ -245,13 +272,22 @@ public class CheckoutSagaRunnerTests {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
 
-        escrow.Setup(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
+        escrow.Setup(c => c.CreateHoldAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string?>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>()
+        ))
             .ThrowsAsync(new InvalidOperationException("payment is unreachable"));
 
         var outcome = await Runner(db, voucher, flash, stock, escrow).RunAsync(PlanWith("SAVE10", ["SKU-1"]));
 
         Assert.False(outcome.Succeeded);
+        Assert.True(outcome.RolledBack);
+        Assert.True(outcome.DependencyUnavailable);
         Assert.Equal(SagaState.Compensated, (await db.CheckoutSagas.SingleAsync()).State);
         voucher.Verify(c => c.ReleaseVoucherAsync("SAVE10", "ORD-TEST-0001"), Times.Once);
         stock.Verify(c => c.ReleaseStockAsync(Merchant, "SKU-1", 1, "ORD-TEST-0001"), Times.Once);
@@ -272,6 +308,8 @@ public class CheckoutSagaRunnerTests {
         var outcome = await Runner(db, voucher, flash, stock, escrow).RunAsync(PlanWith("SAVE10", ["SKU-1", "SKU-2"]));
 
         Assert.False(outcome.Succeeded);
+        Assert.False(outcome.RolledBack);
+        Assert.False(outcome.DependencyUnavailable);
         var saga = await db.CheckoutSagas.SingleAsync();
 
         Assert.Equal(SagaState.Stuck, saga.State);
@@ -462,8 +500,15 @@ public class CheckoutSagaRunnerTests {
         var (voucher, flash, stock, escrow) = AllAgreeing();
         var policy = new CompensationPolicy();
 
-        escrow.Setup(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
+        escrow.Setup(c => c.CreateHoldAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string?>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>()
+        ))
             .ThrowsAsync(new TimeoutException("payment did not answer the hold in time"));
         escrow.Setup(c => c.RefundHoldAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Absent(alreadyDone: true, "payment held nothing to refund for this order"));
@@ -526,8 +571,14 @@ public class CheckoutSagaRunnerTests {
 
         Assert.False(await store.TryCountStepDispatchAsync(impostor, step.Id, CancellationToken.None));
         Assert.False(await store.TryRecordStepOutcomeAsync(
-            impostor, step.Id, SagaStepState.Compensated, false, "zombie", "ZOMBIE",
-            CancellationToken.None));
+            impostor,
+            step.Id,
+            SagaStepState.Compensated,
+            false,
+            "zombie",
+            "ZOMBIE",
+            CancellationToken.None
+        ));
 
         var reloaded = await db.CheckoutSagaSteps.SingleAsync(s => s.Reference == "SKU-1");
         Assert.Equal(SagaStepState.Done, reloaded.State);
@@ -540,8 +591,15 @@ public class CheckoutSagaRunnerTests {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
 
-        escrow.Setup(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
+        escrow.Setup(c => c.CreateHoldAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string?>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>()
+        ))
             .ThrowsAsync(new InvalidOperationException("payment died mid-hold"));
         escrow.Setup(c => c.RefundHoldAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Absent(alreadyDone: true, "payment held nothing to refund for this order"));
@@ -609,8 +667,15 @@ public class CheckoutSagaRunnerTests {
         var (voucher, flash, stock, escrow) = AllAgreeing();
         var policy = new CompensationPolicy(maxAttempts: 3);
 
-        escrow.Setup(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
+        escrow.Setup(c => c.CreateHoldAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string?>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>()
+        ))
             .ThrowsAsync(new TimeoutException("payment did not answer the hold in time"));
         escrow.Setup(c => c.RefundHoldAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ThrowsAsync(new TimeoutException("payment did not answer in time"));
@@ -647,8 +712,15 @@ public class CheckoutSagaRunnerTests {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
 
-        escrow.Setup(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
+        escrow.Setup(c => c.CreateHoldAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string?>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>()
+        ))
             .ThrowsAsync(new InvalidOperationException("payment died mid-hold"));
 
         escrow.SetupSequence(c => c.RefundHoldAsync(It.IsAny<string>(), It.IsAny<string>()))
@@ -686,8 +758,15 @@ public class CheckoutSagaRunnerTests {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
 
-        escrow.Setup(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
+        escrow.Setup(c => c.CreateHoldAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string?>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>()
+        ))
             .ReturnsAsync(StepResult.Refused("this customer's wallet has not got that much in it"));
         escrow.Setup(c => c.GetStandingAsync(It.IsAny<string>()))
             .ReturnsAsync(new EscrowStanding(false, EscrowStandingStatus.Unspecified, 0, string.Empty));
@@ -710,8 +789,15 @@ public class CheckoutSagaRunnerTests {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
 
-        escrow.Setup(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
+        escrow.Setup(c => c.CreateHoldAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string?>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>()
+        ))
             .ReturnsAsync(StepResult.Refused("this customer's wallet has not got that much in it"));
         escrow.Setup(c => c.GetStandingAsync(It.IsAny<string>()))
             .ReturnsAsync(new EscrowStanding(true, EscrowStandingStatus.Held, 12000000, "IDR"));
@@ -760,8 +846,15 @@ public class CheckoutSagaRunnerTests {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
 
-        escrow.Setup(c => c.CreateHoldAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string?>(), It.IsAny<decimal>(), It.IsAny<decimal>(), It.IsAny<decimal>()))
+        escrow.Setup(c => c.CreateHoldAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string?>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>()
+        ))
             .ThrowsAsync(new TimeoutException("payment did not answer the hold in time"));
         escrow.Setup(c => c.RefundHoldAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ThrowsAsync(new InvalidOperationException("payment did not answer"));

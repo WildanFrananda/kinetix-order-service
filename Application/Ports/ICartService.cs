@@ -9,5 +9,6 @@ public interface ICartService {
     Task<CustomerCart> UpdateItemQuantityAsync(string customerPrincipalId, string productId, int quantity);
     Task<CustomerCart> RemoveItemAsync(string customerPrincipalId, string productId);
     Task<CustomerCart> ApplyVoucherAsync(string customerPrincipalId, string voucherCode);
+    Task<CustomerCart> RemoveVoucherAsync(string customerPrincipalId);
     Task ClearCartAsync(string customerPrincipalId);
 }

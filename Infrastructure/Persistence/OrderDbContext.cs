@@ -6,6 +6,9 @@ using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
 namespace Kinetix.OrderService.Infrastructure.Persistence;
 
 public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContext(options) {
+    public const string IdempotencyKeyIndex = "IX_orders_customer_principal_id_idempotency_key";
+    public const string SagaOrderNumberIndex = "IX_checkout_sagas_order_number";
+
     public DbSet<OrderEntity> Orders => Set<OrderEntity>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
     public DbSet<CheckoutSaga> CheckoutSagas => Set<CheckoutSaga>();
@@ -76,7 +79,13 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
         modelBuilder.Entity<OrderEntity>(entity => {
             entity.HasIndex(e => e.OrderNumber).IsUnique();
             entity.HasIndex(e => e.CustomerPrincipalId);
-            entity.HasIndex(e => new { e.CustomerPrincipalId, e.IdempotencyKey }).IsUnique();
+            entity.HasIndex(e => new { e.CustomerPrincipalId, e.IdempotencyKey })
+                .IsUnique()
+                .HasDatabaseName(IdempotencyKeyIndex);
+
+            entity.HasIndex(e => e.CreatedAt)
+                .HasDatabaseName("ix_orders_pending_payment")
+                .HasFilter("status = 'PENDING_PAYMENT'");
 
             entity.HasIndex(e => new { e.UpdatedAt, e.OrderNumber })
                 .HasDatabaseName("ix_orders_changed_since");

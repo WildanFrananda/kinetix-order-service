@@ -383,6 +383,11 @@ namespace Kinetix.OrderService.Migrations {
                     .HasColumnType("decimal(18,2)")
                     .HasColumnName("final_total");
 
+                b.Property<string>("IdempotencyFingerprint")
+                    .HasMaxLength(64)
+                    .HasColumnType("character varying(64)")
+                    .HasColumnName("idempotency_fingerprint");
+
                 b.Property<string>("IdempotencyKey")
                     .HasMaxLength(100)
                     .HasColumnType("character varying(100)")
@@ -454,6 +459,10 @@ namespace Kinetix.OrderService.Migrations {
 
                 b.HasKey("Id");
 
+                b.HasIndex("CreatedAt")
+                    .HasDatabaseName("ix_orders_pending_payment")
+                    .HasFilter("status = 'PENDING_PAYMENT'");
+
                 b.HasIndex("CustomerPrincipalId");
 
                 b.HasIndex("DeliveredAt")
@@ -467,7 +476,8 @@ namespace Kinetix.OrderService.Migrations {
                     .HasDatabaseName("ix_orders_change_feed");
 
                 b.HasIndex("CustomerPrincipalId", "IdempotencyKey")
-                    .IsUnique();
+                    .IsUnique()
+                    .HasDatabaseName("IX_orders_customer_principal_id_idempotency_key");
 
                 b.HasIndex("UpdatedAt", "OrderNumber")
                     .HasDatabaseName("ix_orders_changed_since");

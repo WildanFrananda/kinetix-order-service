@@ -16,10 +16,8 @@ public class OrderCompletionController(IOrderCompletion completion) : Controller
 
     [HttpPost("{orderNumber}/complete")]
     public async Task<IActionResult> Complete(string orderNumber, CancellationToken cancellationToken) {
-        var admin = User.FindFirst("sub")?.Value
-            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-
-        if (string.IsNullOrWhiteSpace(admin)) {
+        var admin = CallerPrincipal.Of(User);
+        if (admin is null) {
             return Unauthorized(new {
                 error = "PRINCIPAL_UNKNOWN",
                 message = "the token names no principal, so the completion could not be attributed",

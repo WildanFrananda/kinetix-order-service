@@ -43,7 +43,8 @@ public class JwksKeyProviderTests {
             var n = Base64UrlEncoder.Encode(parameters.Modulus);
             var e = Base64UrlEncoder.Encode(parameters.Exponent);
 
-            return $"{{\"kty\":\"RSA\",\"use\":\"sig\",\"alg\":\"RS256\",\"kid\":\"{kid}\",\"n\":\"{n}\",\"e\":\"{e}\"}}";
+            return $"{{\"kty\":\"RSA\",\"use\":\"sig\",\"alg\":\"RS256\","
+                + $"\"kid\":\"{kid}\",\"n\":\"{n}\",\"e\":\"{e}\"}}";
         }
     }
 
@@ -135,5 +136,49 @@ public class JwksKeyProviderTests {
         Assert.Empty(world.Resolve("k3"));
         Assert.Equal(2, world.Identity.Fetches);
         Assert.Single(world.Resolve("k1"));
+    }
+
+    [Fact]
+    public async Task AnUnknownKeyWhileIdentityAnswersIsAnInvalidTokenNotAnOutage() {
+        var world = await Started();
+        world.Wait(JwksKeyProvider.UnknownKeyRefreshInterval + TimeSpan.FromSeconds(1));
+
+        Assert.Empty(world.Resolve("forged"));
+        Assert.False(world.Provider.CannotVouchFor("forged"));
+    }
+
+    [Fact]
+    public async Task AnUnknownKeyWhileIdentityCannotBeAskedIsAnOutage() {
+        var world = await Started();
+        world.Identity.Down = true;
+        world.Wait(JwksKeyProvider.UnknownKeyRefreshInterval + TimeSpan.FromSeconds(1));
+
+        Assert.Empty(world.Resolve("k2"));
+        Assert.True(world.Provider.CannotVouchFor("k2"));
+        Assert.False(world.Provider.CannotVouchFor("k1"));
+        Assert.False(world.Provider.CannotVouchFor(null));
+    }
+
+    [Fact]
+    public async Task TheOutageEndsWithTheFirstRefreshIdentityAnswers() {
+        var world = new World();
+        world.Identity.Down = true;
+        await Assert.ThrowsAnyAsync<Exception>(() => world.Provider.RefreshAsync());
+
+        Assert.True(world.Provider.CannotVouchFor("k1"));
+
+        world.Identity.Down = false;
+        world.Wait(JwksKeyProvider.UnknownKeyRefreshInterval + TimeSpan.FromSeconds(1));
+
+        Assert.Single(world.Resolve("k1"));
+        Assert.False(world.Provider.CannotVouchFor("k1"));
+        Assert.False(world.Provider.CannotVouchFor("forged"));
+    }
+
+    [Fact]
+    public async Task ATokenWithNoKeyIdResolvesToNoKeyRatherThanThrowing() {
+        var world = await Started();
+
+        Assert.Empty(world.Resolve(null!));
     }
 }

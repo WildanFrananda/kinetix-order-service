@@ -59,4 +59,13 @@ public class IdentityAddressDirectoryTests {
 
         Assert.Null(point);
     }
+
+    [Fact]
+    public async Task AFaultBeforeIdentityIsReachedIsUnknownNotAbsent() {
+        static object MeshRefusing() =>
+            throw new InvalidOperationException("the mesh handler has no client certificate");
+
+        await Assert.ThrowsAsync<AddressUnknownException>(() => Directory(MeshRefusing).PickupPointAsync(Principal));
+        await Assert.ThrowsAsync<AddressUnknownException>(() => Directory(MeshRefusing).DeliveryPointAsync(Principal));
+    }
 }

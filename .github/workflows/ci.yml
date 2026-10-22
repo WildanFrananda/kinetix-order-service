@@ -72,8 +72,17 @@ jobs:
           --health-cmd="pg_isready -U ci"
           --health-interval=10s --health-timeout=5s --health-retries=5
 
+      # The cart's compare-and-set is a Lua script; only a real Redis can say whether it holds.
+      redis:
+        image: redis:7.2-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s --health-timeout=5s --health-retries=5
+
     env:
       KINETIX_TEST_POSTGRES: "Host=localhost;Port=5432;Database=kinetix_order_test;Username=ci;Password=ci-ephemeral-not-a-deployed-credential"
+      KINETIX_TEST_REDIS: "localhost:6379"
 
     steps:
       - uses: actions/checkout@v6

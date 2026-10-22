@@ -53,13 +53,11 @@ public class ReturnAdminController(OrderDbContext dbContext, IReturnRejection re
     [Authorize(Policy = OrderPolicies.MerchantPayout)]
     public async Task<IActionResult> Reject(
         string returnNumber,
-        [FromBody] RejectReturnRequest request,
+        [FromBody] RejectReturnRequest? request,
         CancellationToken cancellationToken
     ) {
-        var admin = User.FindFirst("sub")?.Value
-            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-
-        if (string.IsNullOrWhiteSpace(admin)) {
+        var admin = CallerPrincipal.Of(User);
+        if (admin is null) {
             return Unauthorized(new {
                 error = "PRINCIPAL_UNKNOWN",
                 message = "the token names no principal, so the rejection could not be attributed",
@@ -68,7 +66,7 @@ public class ReturnAdminController(OrderDbContext dbContext, IReturnRejection re
 
         var status = await _rejection.RejectAsync(
             returnNumber,
-            request.Reason ?? string.Empty,
+            request?.Reason ?? string.Empty,
             LifecycleActor.Admin(admin),
             cancellationToken
         );

@@ -11,4 +11,5 @@ public static class CompensationFailureCode {
     public const string EscrowRefundUnconfirmed = "ESCROW_REFUND_UNCONFIRMED";
     public const string EscrowAlreadyReleased = "ESCROW_ALREADY_RELEASED";
     public const string EscrowUnexpectedStatus = "ESCROW_UNEXPECTED_STATUS";
+    public const string CompletedWithoutFulfillment = "COMPLETED_WITHOUT_FULFILLMENT";
 }

@@ -20,9 +20,13 @@ public class CatalogProductDirectory(
         GetProductResponse response;
         try {
             response = await _client.GetProductAsync(
-                new GetProductRequest { Sku = productId }, cancellationToken: cancellationToken
+                new GetProductRequest { Sku = productId },
+                cancellationToken: cancellationToken
             );
-        } catch (RpcException e) {
+        } catch (RpcException e) when (e.StatusCode is StatusCode.NotFound or StatusCode.InvalidArgument) {
+            _logger.LogWarning("catalog refused GetProduct for {ProductId} with {Code}", productId, e.StatusCode);
+            throw new ProductNotInCatalogException(productId);
+        } catch (Exception e) {
             _logger.LogError(e, "catalog did not answer GetProduct for {ProductId}", productId);
             throw new CatalogUnavailableException(productId, e);
         }
@@ -36,13 +40,16 @@ public class CatalogProductDirectory(
         if (product.Price is null) {
             throw new ProductHasNoUsablePriceException(productId, "the product carries no price");
         }
+
         if (!string.Equals(product.Price.Currency, Currency, StringComparison.Ordinal)) {
             throw new ProductHasNoUsablePriceException(
-                productId, $"its price is in {product.Price.Currency}, and this service settles in {Currency}"
+                productId,
+                $"its price is in {product.Price.Currency}, and this service settles in {Currency}"
             );
         }
+
         if (string.IsNullOrWhiteSpace(product.MerchantPrincipalId)) {
-            throw new ProductHasNoUsablePriceException(productId, "catalog names no merchant for it");
+            throw new ProductHasNoMerchantException(productId);
         }
 
         string? categoryId = string.IsNullOrWhiteSpace(product.CategorySlug) ? null : product.CategorySlug;

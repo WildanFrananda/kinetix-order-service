@@ -15,7 +15,12 @@ public class OrderPoliciesTests {
     }
 
     private static ClaimsPrincipal Staff(string role) =>
-        new(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "Bearer"));
+        new(new ClaimsIdentity(
+            [new Claim(AccessTokenValidation.RoleClaim, role)],
+            "Bearer",
+            AccessTokenValidation.SubjectClaim,
+            AccessTokenValidation.RoleClaim
+        ));
 
     [Theory]
     [InlineData("admin", true)]

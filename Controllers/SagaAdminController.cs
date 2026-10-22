@@ -99,6 +99,9 @@ public class SagaAdminController(OrderDbContext dbContext) : ControllerBase {
             "pricing.v1.PricingService/ReleaseFlashSaleAllocation with this flash sale id and order number",
         SagaStepName.ReserveStock =>
             "fulfillment.v1.BinStockService/ReleaseStock with this merchant, sku and order number",
+        SagaStepName.CreateFulfillmentOrder =>
+            "fulfillment.v1.FulfillmentTaskService/CancelFulfillmentTask with this merchant and the "
+                + "warehouse task id in the reference",
         SagaStepName.CreateEscrowHold =>
             "payment.v1.PaymentService/RefundEscrow with idempotency_key 'order:<order number>' — "
                 + "payment dedupes on that key and answers already_applied, so repeating it cannot "

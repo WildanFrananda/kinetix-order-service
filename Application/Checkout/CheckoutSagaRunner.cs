@@ -56,7 +56,7 @@ public class CheckoutSagaRunner(
                     + "checkout that nothing is holding",
                 plan.OrderNumber
             );
-            return new SagaOutcome(false, "this checkout could not be started safely");
+            return new SagaOutcome(false, "this checkout could not be started safely", RolledBack: true);
         }
 
         ForwardPassOutcome forward;
@@ -64,7 +64,7 @@ public class CheckoutSagaRunner(
             forward = await RunForwardAsync(saga, plan, lease);
         } catch (Exception e) {
             _logger.LogError(e, "checkout saga for {Order} threw; compensating", plan.OrderNumber);
-            forward = ForwardPassOutcome.Failed("a service this checkout depends on did not answer");
+            forward = ForwardPassOutcome.Unavailable("a service this checkout depends on did not answer");
         }
 
         if (forward.LeaseLost) {
@@ -89,7 +89,8 @@ public class CheckoutSagaRunner(
             return new SagaOutcome(false, "this checkout was taken over and is being unwound");
         }
 
-        return await CompensateAsync(saga, forward.FailureReason, lease, CancellationToken.None);
+        var unwound = await CompensateAsync(saga, forward.FailureReason, lease, CancellationToken.None);
+        return unwound with { DependencyUnavailable = forward.DependencyUnavailable };
     }
 
     public async Task<SagaOutcome> CompensateAsync(
@@ -110,7 +111,9 @@ public class CheckoutSagaRunner(
                         + "record an outcome, so the budget is spent with nothing released. Money "
                         + "or stock may still be held downstream. Nothing further will be "
                         + "attempted automatically; settle it by hand",
-                    GivingUpToken, saga.OrderNumber, _policy.MaxAttempts
+                    GivingUpToken,
+                    saga.OrderNumber,
+                    _policy.MaxAttempts
                 );
                 return new SagaOutcome(false, reason);
             }
@@ -133,10 +136,12 @@ public class CheckoutSagaRunner(
         try {
             return await CompensateUnderLeaseAsync(saga, reason, lease, cancellationToken);
         } catch (Exception e) when (e is not OperationCanceledException) {
-            _logger.LogError(e,
+            _logger.LogError(
+                e,
                 "compensation round {Attempt} for {Order} threw and is being abandoned; the lease "
                     + "will expire and another round will pick it up if the budget allows",
-                lease.AttemptNumber, saga.OrderNumber
+                lease.AttemptNumber,
+                saga.OrderNumber
             );
             return new SagaOutcome(false, reason);
         }
@@ -163,6 +168,7 @@ public class CheckoutSagaRunner(
             if (settled is null) {
                 return ForwardPassOutcome.Lost();
             }
+
             if (!settled.Value) {
                 return ForwardPassOutcome.Failed($"voucher: {result.Detail}");
             }
@@ -173,14 +179,24 @@ public class CheckoutSagaRunner(
                 return ForwardPassOutcome.Lost();
             }
 
-            var step = await BeginStep(saga, SagaStepName.AllocateFlashSaleStock,
-                claim.FlashSaleId, claim.Quantity, productId: claim.ProductId);
+            var step = await BeginStep(
+                saga,
+                SagaStepName.AllocateFlashSaleStock,
+                claim.FlashSaleId,
+                claim.Quantity,
+                productId: claim.ProductId
+            );
             var result = await _flashSaleClient.AllocateAsync(
-                claim.FlashSaleId, claim.ProductId, claim.Quantity, plan.OrderNumber);
+                claim.FlashSaleId,
+                claim.ProductId,
+                claim.Quantity,
+                plan.OrderNumber
+            );
             var settled = await Settle(lease, step, result);
             if (settled is null) {
                 return ForwardPassOutcome.Lost();
             }
+
             if (!settled.Value) {
                 return ForwardPassOutcome.Failed($"flash sale {claim.FlashSaleId}: {result.Detail}");
             }
@@ -191,14 +207,24 @@ public class CheckoutSagaRunner(
                 return ForwardPassOutcome.Lost();
             }
 
-            var step = await BeginStep(saga, SagaStepName.ReserveStock, reservation.Sku,
-                reservation.Quantity, reservation.MerchantPrincipalId);
+            var step = await BeginStep(
+                saga,
+                SagaStepName.ReserveStock,
+                reservation.Sku,
+                reservation.Quantity,
+                reservation.MerchantPrincipalId
+            );
             var result = await _stockClient.ReserveStockAsync(
-                reservation.MerchantPrincipalId, reservation.Sku, reservation.Quantity, plan.OrderNumber);
+                reservation.MerchantPrincipalId,
+                reservation.Sku,
+                reservation.Quantity,
+                plan.OrderNumber
+            );
             var settled = await Settle(lease, step, result);
             if (settled is null) {
                 return ForwardPassOutcome.Lost();
             }
+
             if (!settled.Value) {
                 return ForwardPassOutcome.Failed($"stock for {reservation.Sku}: {result.Detail}");
             }
@@ -208,8 +234,13 @@ public class CheckoutSagaRunner(
             return ForwardPassOutcome.Lost();
         }
 
-        var escrowStep = await BeginStep(saga, SagaStepName.CreateEscrowHold, plan.OrderNumber, 1,
-            plan.MerchantPrincipalId);
+        var escrowStep = await BeginStep(
+            saga,
+            SagaStepName.CreateEscrowHold,
+            plan.OrderNumber,
+            1,
+            plan.MerchantPrincipalId
+        );
         var escrow = await _escrowClient.CreateHoldAsync(
             plan.OrderNumber,
             plan.CustomerPrincipalId,
@@ -217,11 +248,13 @@ public class CheckoutSagaRunner(
             null,
             plan.TotalOrderAmount,
             plan.MerchantAmount,
-            plan.ShippingFeeAmount);
+            plan.ShippingFeeAmount
+        );
         var escrowSettled = await Settle(lease, escrowStep, escrow);
         if (escrowSettled is null) {
             return ForwardPassOutcome.Lost();
         }
+
         if (!escrowSettled.Value) {
             return ForwardPassOutcome.Failed($"escrow: {escrow.Detail}");
         }
@@ -230,12 +263,18 @@ public class CheckoutSagaRunner(
             return ForwardPassOutcome.Lost();
         }
 
-        var fulfilmentStep = await BeginStep(saga, SagaStepName.CreateFulfillmentOrder, plan.OrderNumber, 1,
-            plan.MerchantPrincipalId);
+        var fulfilmentStep = await BeginStep(
+            saga,
+            SagaStepName.CreateFulfillmentOrder,
+            plan.OrderNumber,
+            1,
+            plan.MerchantPrincipalId
+        );
         var created = await _fulfillmentClient.CreateTaskAsync(
             plan.MerchantPrincipalId,
             plan.OrderNumber,
-            plan.FulfillmentLines);
+            plan.FulfillmentLines
+        );
 
         if (!string.IsNullOrWhiteSpace(created.WarehouseOrderId)) {
             _dbContext.Attach(fulfilmentStep);
@@ -248,6 +287,7 @@ public class CheckoutSagaRunner(
         if (fulfilmentSettled is null) {
             return ForwardPassOutcome.Lost();
         }
+
         if (!fulfilmentSettled.Value) {
             return ForwardPassOutcome.Failed($"fulfilment: {created.Result.Detail}");
         }
@@ -273,7 +313,10 @@ public class CheckoutSagaRunner(
 
         _logger.LogInformation(
             "compensating {Order}: round {Attempt} of {Max}, {Count} step(s) still outstanding",
-            saga.OrderNumber, lease.AttemptNumber, _policy.MaxAttempts, steps.Count
+            saga.OrderNumber,
+            lease.AttemptNumber,
+            _policy.MaxAttempts,
+            steps.Count
         );
 
         var allReleased = true;
@@ -315,14 +358,19 @@ public class CheckoutSagaRunner(
                 step.CompensatedByRepeat = outcome.AlreadyDone;
                 _logger.LogInformation(
                     "gave back {Step} {Reference} for {Order}{Already}",
-                    step.Name, step.Reference, saga.OrderNumber,
+                    step.Name,
+                    step.Reference,
+                    saga.OrderNumber,
                     outcome.AlreadyDone ? " (the downstream had already released it)" : string.Empty
                 );
             } else {
                 allReleased = false;
                 _logger.LogWarning(
                     "could not undo {Step} {Reference} for {Order}: {Detail}",
-                    step.Name, step.Reference, saga.OrderNumber, outcome.Detail
+                    step.Name,
+                    step.Reference,
+                    saga.OrderNumber,
+                    outcome.Detail
                 );
             }
 
@@ -346,11 +394,14 @@ public class CheckoutSagaRunner(
             _logger.LogWarning(
                 "lost the lease on {Order} part-way through round {Attempt}; stopping without "
                     + "another downstream call. Whoever holds it now will finish the unwind",
-                saga.OrderNumber, lease.AttemptNumber
+                saga.OrderNumber,
+                lease.AttemptNumber
             );
             await _leaseStore.RecordAttemptOutcomeAsync(
-                lease, CompensationAttemptOutcome.LeaseLost,
-                "the lease was gone before this round finished", cancellationToken
+                lease,
+                CompensationAttemptOutcome.LeaseLost,
+                "the lease was gone before this round finished",
+                cancellationToken
             );
             return new SagaOutcome(false, reason);
         }
@@ -368,18 +419,27 @@ public class CheckoutSagaRunner(
         var delaySeconds = state == SagaState.Stuck ? _policy.DelaySeconds(lease.AttemptNumber) : -1;
 
         var written = await _leaseStore.FinishCompensationAsync(
-            lease, state, reason, failureCode, delaySeconds, needsAttention, cancellationToken
+            lease,
+            state,
+            reason,
+            failureCode,
+            delaySeconds,
+            needsAttention,
+            cancellationToken
         );
 
         if (!written) {
             _logger.LogWarning(
                 "the lease on {Order} was gone before round {Attempt} could record its outcome; "
                     + "the worker holding it now decides what this saga becomes",
-                saga.OrderNumber, lease.AttemptNumber
+                saga.OrderNumber,
+                lease.AttemptNumber
             );
             await _leaseStore.RecordAttemptOutcomeAsync(
-                lease, CompensationAttemptOutcome.LeaseLost,
-                "the fenced outcome write matched no row", cancellationToken
+                lease,
+                CompensationAttemptOutcome.LeaseLost,
+                "the fenced outcome write matched no row",
+                cancellationToken
             );
             return new SagaOutcome(false, reason);
         }
@@ -405,20 +465,27 @@ public class CheckoutSagaRunner(
                     + "{Outstanding}. Failure code {Code}. Money or stock is still held downstream "
                     + "for customer {Customer} and nothing further will be attempted "
                     + "automatically; settle it by hand",
-                GivingUpToken, saga.OrderNumber, lease.AttemptNumber,
-                steps.Count(s => s.State != SagaStepState.Compensated), Outstanding(steps),
-                failureCode, saga.CustomerPrincipalId
+                GivingUpToken,
+                saga.OrderNumber,
+                lease.AttemptNumber,
+                steps.Count(s => s.State != SagaStepState.Compensated),
+                Outstanding(steps),
+                failureCode,
+                saga.CustomerPrincipalId
             );
         } else if (state == SagaState.Stuck) {
             _logger.LogWarning(
                 "{Order} did not fully unwind on round {Attempt} of {Max}; trying again in about "
                     + "{Delay}s. Still held: {Outstanding}",
-                saga.OrderNumber, lease.AttemptNumber, _policy.MaxAttempts, delaySeconds,
+                saga.OrderNumber,
+                lease.AttemptNumber,
+                _policy.MaxAttempts,
+                delaySeconds,
                 Outstanding(steps)
             );
         }
 
-        return new SagaOutcome(false, reason);
+        return new SagaOutcome(false, reason, RolledBack: state == SagaState.Compensated);
     }
 
     private async Task<StepCompensationOutcome?> CompensateStepAsync(
@@ -447,6 +514,7 @@ public class CheckoutSagaRunner(
         if (!await _leaseStore.TryCountStepDispatchAsync(lease, step.Id, cancellationToken)) {
             return null;
         }
+
         step.CompensationAttempts += 1;
 
         try {
@@ -455,12 +523,20 @@ public class CheckoutSagaRunner(
                     await _voucherClient.ReleaseVoucherAsync(step.Reference, saga.OrderNumber),
                 SagaStepName.ReserveStock =>
                     await _stockClient.ReleaseStockAsync(
-                        step.MerchantPrincipalId, step.Reference, step.Quantity, saga.OrderNumber),
+                        step.MerchantPrincipalId,
+                        step.Reference,
+                        step.Quantity,
+                        saga.OrderNumber
+                    ),
                 SagaStepName.CreateFulfillmentOrder =>
                     await _fulfillmentClient.CancelTaskAsync(step.MerchantPrincipalId, step.Reference),
                 _ =>
                     await _flashSaleClient.ReleaseAsync(
-                        step.Reference, step.ProductId ?? string.Empty, step.Quantity, saga.OrderNumber),
+                        step.Reference,
+                        step.ProductId ?? string.Empty,
+                        step.Quantity,
+                        saga.OrderNumber
+                    ),
             };
 
             if (result.Success) {
@@ -468,7 +544,8 @@ public class CheckoutSagaRunner(
             }
 
             return StepCompensationOutcome.Retryable(
-                CompensationFailureCode.DownstreamRefused, result.Detail
+                CompensationFailureCode.DownstreamRefused,
+                result.Detail
             );
         } catch (RpcException e) {
             return CompensationPolicy.Classify(e) == CompensationFailureKind.Terminal
@@ -482,7 +559,8 @@ public class CheckoutSagaRunner(
                   );
         } catch (Exception e) when (e is not OperationCanceledException) {
             return StepCompensationOutcome.Retryable(
-                CompensationFailureCode.DownstreamUnavailable, e.Message
+                CompensationFailureCode.DownstreamUnavailable,
+                e.Message
             );
         }
     }
@@ -501,6 +579,7 @@ public class CheckoutSagaRunner(
         if (!await _leaseStore.TryCountStepDispatchAsync(lease, step.Id, cancellationToken)) {
             return null;
         }
+
         step.CompensationAttempts += 1;
 
         var refundSettled = false;
@@ -512,7 +591,8 @@ public class CheckoutSagaRunner(
 
             refundSettled = result.AlreadyDone;
         } catch (Exception e) when (e is not OperationCanceledException) {
-            _logger.LogWarning(e,
+            _logger.LogWarning(
+                e,
                 "the refund for {Order} did not come back cleanly; reading payment's ledger "
                     + "before deciding what happened to the money",
                 saga.OrderNumber
@@ -587,7 +667,9 @@ public class CheckoutSagaRunner(
                         + "{Customer}), so its refund recorded a tombstone. Asking again next round: "
                         + "a hold that committed behind that tombstone is unwound by the repeat and "
                         + "by nothing else",
-                    saga.OrderNumber, amountMinor, saga.CustomerPrincipalId
+                    saga.OrderNumber,
+                    amountMinor,
+                    saga.CustomerPrincipalId
                 );
 
                 return StepCompensationOutcome.Stalled(
@@ -601,7 +683,9 @@ public class CheckoutSagaRunner(
                 "payment has confirmed twice that it holds nothing for {Order} ({AmountMinor} minor "
                     + "units, customer {Customer}); the escrow leg is unwound. This saga stays "
                     + "flagged so the customer's wallet is eyeballed once by hand",
-                saga.OrderNumber, amountMinor, saga.CustomerPrincipalId
+                saga.OrderNumber,
+                amountMinor,
+                saga.CustomerPrincipalId
             );
 
             return StepCompensationOutcome.ReleasedWithConcern(
@@ -668,11 +752,13 @@ public class CheckoutSagaRunner(
             : $"{saga.CorrelationId}/cmp-{lease.AttemptNumber}";
 
     private static string Outstanding(IEnumerable<CheckoutSagaStep> steps) =>
-        string.Join("; ", steps
-            .Where(s => s.State != SagaStepState.Compensated)
-            .Select(s => $"{s.Name} {s.Reference} x{s.Quantity} "
-                + $"[{s.LastFailureCode ?? "no code"}] ({s.Detail ?? "no detail"})"
-            )
+        string.Join(
+            "; ",
+            steps
+                .Where(s => s.State != SagaStepState.Compensated)
+                .Select(s => $"{s.Name} {s.Reference} x{s.Quantity} "
+                    + $"[{s.LastFailureCode ?? "no code"}] ({s.Detail ?? "no detail"})"
+                )
         );
 
     private async Task<CheckoutSagaStep> BeginStep(
@@ -707,8 +793,14 @@ public class CheckoutSagaRunner(
         var state = result.Success ? SagaStepState.Done : SagaStepState.Failed;
 
         var written = await _leaseStore.TryRecordStepOutcomeAsync(
-            lease, step.Id, state, step.CompensatedByRepeat, result.Detail, step.LastFailureCode,
-            CancellationToken.None);
+            lease,
+            step.Id,
+            state,
+            step.CompensatedByRepeat,
+            result.Detail,
+            step.LastFailureCode,
+            CancellationToken.None
+        );
         if (!written) {
             return null;
         }

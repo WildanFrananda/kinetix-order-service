@@ -16,6 +16,8 @@ public class StuckSagaSweeper(
 
     private const int UnattendedGraceSeconds = 5 * 60;
 
+    private const int SagalessGraceSeconds = 3 * UnattendedGraceSeconds;
+
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
     private readonly ILogger<StuckSagaSweeper> _logger = logger;
 
@@ -43,6 +45,9 @@ public class StuckSagaSweeper(
     }
 
     private async Task SweepAsync(CancellationToken stoppingToken) {
+        await FinishCompletedCheckoutsAsync(stoppingToken);
+        await CancelSagalessCheckoutsAsync(stoppingToken);
+
         List<Guid> due;
         using (var scope = _scopeFactory.CreateScope()) {
             var leaseStore = scope.ServiceProvider.GetRequiredService<ISagaLeaseStore>();
@@ -54,7 +59,8 @@ public class StuckSagaSweeper(
         }
 
         _logger.LogInformation(
-            "{Count} checkout saga(s) are due to be unwound or retried", due.Count
+            "{Count} checkout saga(s) are due to be unwound or retried",
+            due.Count
         );
 
         foreach (var sagaId in due) {
@@ -77,6 +83,50 @@ public class StuckSagaSweeper(
                 saga.FailureReason ?? "the checkout that started this saga never finished",
                 heldLease: null,
                 CancellationToken.None
+            );
+        }
+    }
+
+    private async Task FinishCompletedCheckoutsAsync(CancellationToken stoppingToken) {
+        try {
+            using var scope = _scopeFactory.CreateScope();
+            var finisher = scope.ServiceProvider.GetRequiredService<CompletedCheckoutFinisher>();
+
+            var finished = await finisher.FinishAsync(
+                TimeSpan.FromSeconds(UnattendedGraceSeconds),
+                _batchSize,
+                stoppingToken
+            );
+
+            if (finished > 0) {
+                _logger.LogInformation("{Count} completed checkout(s) were left unpaid and are PAID now", finished);
+            }
+        } catch (Exception e) when (e is not OperationCanceledException) {
+            _logger.LogError(e, "finishing completed checkouts failed; the next sweep will look again");
+        }
+    }
+
+    private async Task CancelSagalessCheckoutsAsync(CancellationToken stoppingToken) {
+        try {
+            using var scope = _scopeFactory.CreateScope();
+            var canceller = scope.ServiceProvider.GetRequiredService<SagalessCheckoutCanceller>();
+
+            var cancelled = await canceller.CancelAsync(
+                TimeSpan.FromSeconds(SagalessGraceSeconds),
+                _batchSize,
+                stoppingToken
+            );
+
+            if (cancelled > 0) {
+                _logger.LogInformation(
+                    "{Count} order(s) whose checkout never started its saga are CANCELLED now",
+                    cancelled
+                );
+            }
+        } catch (Exception e) when (e is not OperationCanceledException) {
+            _logger.LogError(
+                e,
+                "cancelling checkouts that never started their saga failed; the next sweep will look again"
             );
         }
     }

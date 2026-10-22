@@ -117,6 +117,12 @@ public class CourierDispatchTests {
     private static Func<StepResult> WarehouseUnreachable() =>
         () => throw new RpcException(new Status(StatusCode.Unavailable, "warehouse is down"));
 
+    private static Func<DispatchCourierResponse> MeshRefusing() =>
+        () => throw new InvalidOperationException("the mesh handler has no client certificate");
+
+    private static Func<StepResult> WarehouseMeshRefusing() =>
+        () => throw new InvalidOperationException("the mesh handler has no client certificate");
+
     private sealed class World {
         public string Database { get; } = Guid.NewGuid().ToString();
         public ScriptedDirectory Directory { get; } = new();
@@ -268,6 +274,40 @@ public class CourierDispatchTests {
 
         Assert.NotNull((await world.Row()).DispatchedAt);
         Assert.Equal(2, world.Courier.Calls);
+    }
+
+    [Fact]
+    public async Task AFleetTheMeshCannotReachIsRetriedLikeAnOutage() {
+        var world = await PaidOrder();
+        world.Courier.Answers.Enqueue(MeshRefusing());
+
+        await world.Packed();
+
+        var row = await world.Row();
+        Assert.Contains("the fleet could not be reached: the mesh handler has no client certificate", row.LastError);
+        Assert.NotNull(row.NextAttemptAt);
+
+        await world.Sweep();
+
+        Assert.NotNull((await world.Row()).DispatchedAt);
+    }
+
+    [Fact]
+    public async Task AWarehouseTheMeshCannotReachIsToldLaterWithoutASecondDispatch() {
+        var world = await PaidOrder();
+        world.Warehouse.Answers.Enqueue(WarehouseMeshRefusing());
+
+        await world.Packed();
+
+        var row = await world.Row();
+        Assert.NotNull(row.DispatchedAt);
+        Assert.Null(row.AwbRecordedAt);
+        Assert.Contains("the mesh handler has no client certificate", row.LastError);
+
+        await world.Sweep();
+
+        Assert.Equal(1, world.Courier.Calls);
+        Assert.NotNull((await world.Row()).AwbRecordedAt);
     }
 
     [Fact]
