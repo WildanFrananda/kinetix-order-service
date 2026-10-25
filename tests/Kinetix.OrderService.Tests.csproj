@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="coverlet.collector" Version="10.1.0" />
     <!-- Tracks the EF Core version the service project resolves; a provider on a different EF version
          builds a different model. Was 10.0.0-rc.2.25410.1, which nuget.org unlisted at the net10.0 GA. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.12" />
