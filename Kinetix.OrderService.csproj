@@ -73,10 +73,10 @@
          publishing and listing the output, not by reading PrivateAssets. The pin is here anyway
          because an NU1903 that nobody actions on every build is how a real one gets missed.
          Remove both lines once EFCore.Design resolves a patched MSBuild on its own. -->
-    <PackageReference Include="Microsoft.Build.Tasks.Core" Version="17.14.28">
+    <PackageReference Include="Microsoft.Build.Tasks.Core" Version="18.11.0">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28">
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="18.11.0">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <!-- Pinned above the 9.0.0 that Microsoft.Build.Tasks.Core 17.14.28 resolves transitively, which
