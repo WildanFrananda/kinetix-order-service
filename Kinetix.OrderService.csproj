@@ -32,12 +32,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Google.Protobuf" Version="3.30.1" />
-    <PackageReference Include="Grpc.AspNetCore" Version="2.67.0" />
-    <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.67.0" />
-    <PackageReference Include="Grpc.Net.Client" Version="2.67.0" />
-    <PackageReference Include="Grpc.Net.ClientFactory" Version="2.67.0" />
-    <PackageReference Include="Grpc.Tools" Version="2.70.0">
+    <PackageReference Include="Google.Protobuf" Version="3.36.2" />
+    <PackageReference Include="Grpc.AspNetCore" Version="2.84.0" />
+    <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.84.0" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.84.0" />
+    <PackageReference Include="Grpc.Net.ClientFactory" Version="2.84.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.84.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
@@ -51,9 +51,9 @@
          for the whole graph; move them and the test project's InMemory pin together. Relational needs its
          own line because Npgsql depends on it directly — pinning Microsoft.EntityFrameworkCore alone
          leaves Relational on the floor of Npgsql's range and the conflict stands. -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.12" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.14" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.14" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <!-- The Prometheus text exposition on /metrics. OpenTelemetry would also get there, but it
          brings a whole SDK, a pipeline and an exporter to serve one endpoint the estate's
@@ -63,7 +63,7 @@
          out of the published output, so the runtime image does not carry tooling it never
          calls. Version tracks Microsoft.EntityFrameworkCore as resolved in packages.lock.json;
          a design-time package on a different EF version reads a different model. -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.14">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
@@ -84,11 +84,11 @@
          2026-10-13 with 10.0.13 as the fix. Design-time only, like the MSBuild pins above: `dotnet
          publish` emits no Pkcs assembly, verified 2026-10-17 by publishing and listing the output.
          Remove it once the MSBuild pin resolves a patched Pkcs on its own. -->
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13">
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="StackExchange.Redis" Version="2.8.24" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
+    <PackageReference Include="StackExchange.Redis" Version="2.13.17" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.1" />
   </ItemGroup>
 
 </Project>
