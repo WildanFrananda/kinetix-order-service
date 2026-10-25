@@ -1,4 +1,5 @@
 using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Infrastructure.Configuration;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,17 +10,12 @@ public class CourierDispatchSweeper(
     IConfiguration configuration,
     ILogger<CourierDispatchSweeper> logger
 ) : BackgroundService {
-    private const int DefaultBatchSize = 20;
-
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
 
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
     private readonly ILogger<CourierDispatchSweeper> _logger = logger;
 
-    private readonly int _batchSize =
-        int.TryParse(configuration["KINETIX_DISPATCH_SWEEP_BATCH"], out var batch) && batch > 0
-            ? batch
-            : DefaultBatchSize;
+    private readonly int _batchSize = RequiredSetting.Count(configuration, "KINETIX_DISPATCH_SWEEP_BATCH");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
         await Task.Delay(TimeSpan.FromSeconds(40), stoppingToken);

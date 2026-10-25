@@ -54,7 +54,7 @@ public class SagaLeaseStorePostgresTests {
             return;
         }
 
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
         using var setup = NewDbContext(ConnectionString);
         await setup.Database.MigrateAsync();
         var sagaId = await SeedAsync(setup, SagaState.Stuck, 0, "ORD-PGTEST-RACE");
@@ -86,7 +86,7 @@ public class SagaLeaseStorePostgresTests {
             return;
         }
 
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
         using var db = NewDbContext(ConnectionString);
         await db.Database.MigrateAsync();
         var sagaId = await SeedAsync(db, SagaState.Stuck, 0, "ORD-PGTEST-FENCE");
@@ -121,7 +121,7 @@ public class SagaLeaseStorePostgresTests {
             return;
         }
 
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
         using var db = NewDbContext(ConnectionString);
         await db.Database.MigrateAsync();
         var sagaId = await SeedAsync(db, SagaState.Stuck, 0, "ORD-PGTEST-STEPFENCE");
@@ -184,7 +184,7 @@ public class SagaLeaseStorePostgresTests {
             return;
         }
 
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
         using var db = NewDbContext(ConnectionString);
         await db.Database.MigrateAsync();
         var sagaId = await SeedAsync(db, SagaState.Stuck, 0, "ORD-PGTEST-ATTEMPTROW");
@@ -214,7 +214,7 @@ public class SagaLeaseStorePostgresTests {
             return;
         }
 
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
         using var db = NewDbContext(ConnectionString);
         await db.Database.MigrateAsync();
         var sagaId = await SeedAsync(db, SagaState.Stuck, 0, "ORD-PGTEST-STICKY");
@@ -245,7 +245,7 @@ public class SagaLeaseStorePostgresTests {
             return;
         }
 
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
         using var db = NewDbContext(ConnectionString);
         await db.Database.MigrateAsync();
         var sagaId = await SeedAsync(db, SagaState.Running, 0, "ORD-PGTEST-HANDOFF");
@@ -270,7 +270,7 @@ public class SagaLeaseStorePostgresTests {
             return;
         }
 
-        var policy = new CompensationPolicy(maxAttempts: 2);
+        var policy = CompensationPolicies.Standard(maxAttempts: 2);
         using var db = NewDbContext(ConnectionString);
         await db.Database.MigrateAsync();
         var sagaId = await SeedAsync(db, SagaState.Compensating, 2, "ORD-PGTEST-BUDGET");

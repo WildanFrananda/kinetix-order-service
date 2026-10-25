@@ -116,7 +116,7 @@ public class CheckoutIdempotencyPostgresTests {
         ))
             .ReturnsAsync(new FulfillmentCreated(StepResult.Ok(), "901"));
 
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
         var runner = new CheckoutSagaRunner(
             db,
             new Mock<IVoucherQuotaClient>().Object,

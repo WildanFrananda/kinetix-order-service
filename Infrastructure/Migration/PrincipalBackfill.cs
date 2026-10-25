@@ -2,6 +2,7 @@ using Grpc.Core;
 using Grpc.Net.Client;
 using Identity.V1;
 using Npgsql;
+using Kinetix.OrderService.Infrastructure.Configuration;
 using Kinetix.OrderService.Security;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
@@ -10,7 +11,7 @@ namespace Kinetix.OrderService.Infrastructure.Migration;
 
 public static class PrincipalBackfill {
 
-    public static async Task<int> RunAsync(string connectionString) {
+    public static async Task<int> RunAsync(string connectionString, IConfiguration configuration) {
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync();
 
@@ -38,7 +39,7 @@ public static class PrincipalBackfill {
 
         Console.WriteLine($"{pending.Count} account(s) to resolve through identity");
 
-        using var channel = OpenChannel();
+        using var channel = OpenChannel(configuration);
         var identity = new IdentityService.IdentityServiceClient(channel);
 
         var updated = 0;
@@ -81,10 +82,8 @@ public static class PrincipalBackfill {
         return await command.ExecuteScalarAsync() is not null;
     }
 
-    private static GrpcChannel OpenChannel() {
-        var target = Environment.GetEnvironmentVariable("IDENTITY_GRPC_TARGET")
-            ?? "https://kinetix-identity-service:50052";
-
+    private static GrpcChannel OpenChannel(IConfiguration configuration) {
+        var target = RequiredSetting.GrpcUrl(configuration, "IDENTITY_GRPC_TARGET");
         var identity = ServiceIdentity.Load();
 
         var handler = new SocketsHttpHandler {

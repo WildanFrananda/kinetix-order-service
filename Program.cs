@@ -39,9 +39,7 @@ builder.Logging.AddConsoleFormatter<KinetixJsonConsoleFormatter, ConsoleFormatte
 
 builder.Logging.AddConsole(options => options.FormatterName = KinetixJsonConsoleFormatter.FormatterName);
 
-var connectionString = builder.Configuration["DATABASE_URL"]
-    ?? builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("DATABASE_URL environment variable is required and missing.");
+var connectionString = RequiredSetting.Text(builder.Configuration, "DATABASE_URL");
 
 if (args.Contains("--migrate")) {
     var migrateOptions = new DbContextOptionsBuilder<OrderDbContext>()
@@ -60,12 +58,17 @@ if (args.Contains("--migrate")) {
         Console.WriteLine($"applying {name}");
     }
 
-    await Kinetix.OrderService.Infrastructure.Migration.PrincipalBackfill.RunAsync(connectionString);
+    await Kinetix.OrderService.Infrastructure.Migration.PrincipalBackfill.RunAsync(
+        connectionString,
+        builder.Configuration
+    );
 
     await migrateContext.Database.MigrateAsync();
     Console.WriteLine($"applied {pending.Count} migration(s)");
     return 0;
 }
+
+var settings = OrderSettings.FromConfiguration(builder.Configuration);
 
 Metrics.SuppressDefaultMetrics(new SuppressDefaultMetricOptions {
     SuppressEventCounters = true,
@@ -77,43 +80,27 @@ builder.Services.AddSingleton(new KinetixMetrics(
     BuildVersion.Of(builder.Configuration["KINETIX_BUILD_VERSION"])
 ));
 
+builder.Services.AddSingleton<AdminAudit>();
 builder.Services.AddSingleton<DrainState>();
-builder.Services.Configure<HostOptions>(options =>
-    options.ShutdownTimeout = ShutdownTimeout.FromEnvironment(
-        builder.Configuration["KINETIX_SHUTDOWN_TIMEOUT_SECONDS"]
-    )
-);
+builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = settings.ShutdownTimeout);
 
 builder.Services.AddDbContext<OrderDbContext>(options =>
     options.UseNpgsql(connectionString)
 );
 
-var redisConnectionString = builder.Configuration["REDIS_CONNECTION_STRING"]
-    ?? builder.Configuration.GetConnectionString("Redis")
-    ?? throw new InvalidOperationException("REDIS_CONNECTION_STRING environment variable is required and missing.");
-
-var redisOptions = ConfigurationOptions.Parse(redisConnectionString);
+var redisOptions = ConfigurationOptions.Parse(settings.RedisConnectionString);
 redisOptions.AbortOnConnectFail = false;
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisOptions));
 builder.Services.AddSingleton<ICartStore, RedisCartStore>();
 
-var pricingGrpcUrl = builder.Configuration["PRICING_GRPC_URL"]
-    ?? throw new InvalidOperationException("PRICING_GRPC_URL environment variable is required and missing.");
-
 var serviceIdentity = ServiceIdentity.Load();
 
-static Uri AsMesh(string url) =>
-    new(url.StartsWith("http://", StringComparison.Ordinal)
-        ? string.Concat("https://", url.AsSpan("http://".Length))
-        : url
-    );
+static Uri AsMesh(Uri url) =>
+    url.Scheme == Uri.UriSchemeHttp
+        ? new UriBuilder(url) { Scheme = Uri.UriSchemeHttps, Port = url.IsDefaultPort ? -1 : url.Port }.Uri
+        : url;
 
-var grpcDeadline = TimeSpan.FromSeconds(
-    double.TryParse(builder.Configuration["KINETIX_GRPC_DEADLINE_SECONDS"], out var seconds)
-        ? seconds
-        : 5
-    );
-builder.Services.AddSingleton(new GrpcDeadlineInterceptor(grpcDeadline));
+builder.Services.AddSingleton(new GrpcDeadlineInterceptor(settings.GrpcDeadline));
 
 HttpMessageHandler MeshHandler(IServiceProvider services, string expectedService) =>
     MeshClientHandler.For(
@@ -122,7 +109,7 @@ HttpMessageHandler MeshHandler(IServiceProvider services, string expectedService
         services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(MeshClientHandler))
     );
 
-var pricingAddress = AsMesh(pricingGrpcUrl);
+var pricingAddress = AsMesh(settings.PricingGrpcUrl);
 
 builder.Services.AddGrpcClient<PricingService.PricingServiceClient>(options => {
     options.Address = pricingAddress;
@@ -134,15 +121,12 @@ builder.Services.AddGrpcClient<PricingService.PricingServiceClient>(options => {
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
 
-var restPort = int.Parse(builder.Configuration["PORT"] ?? "8001");
-var grpcPort = int.Parse(builder.Configuration["GRPC_PORT"] ?? "50055");
-
 builder.WebHost.ConfigureKestrel(options => {
-    options.ListenAnyIP(restPort, listen => {
+    options.ListenAnyIP(settings.RestPort, listen => {
         listen.Protocols = HttpProtocols.Http1AndHttp2;
     });
 
-    options.ListenAnyIP(grpcPort, listen => {
+    options.ListenAnyIP(settings.GrpcPort, listen => {
         listen.Protocols = HttpProtocols.Http2;
 
         listen.UseHttps(serviceIdentity.Leaf, https => {
@@ -152,8 +136,7 @@ builder.WebHost.ConfigureKestrel(options => {
     });
 });
 
-var matchingGrpcUrl = builder.Configuration["MATCHING_GRPC_URL"] ?? "http://kinetix-matching-service:50053";
-var matchingAddress = AsMesh(matchingGrpcUrl);
+var matchingAddress = AsMesh(settings.MatchingGrpcUrl);
 
 builder.Services.AddGrpcClient<Shipping.V1.ShippingService.ShippingServiceClient>(options => {
     options.Address = matchingAddress;
@@ -165,8 +148,7 @@ builder.Services.AddGrpcClient<Shipping.V1.ShippingService.ShippingServiceClient
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
 
-var catalogGrpcUrl = builder.Configuration["CATALOG_GRPC_URL"] ?? "http://kinetix-catalog-grpc:50058";
-var catalogAddress = AsMesh(catalogGrpcUrl);
+var catalogAddress = AsMesh(settings.CatalogGrpcUrl);
 
 builder.Services.AddGrpcClient<Catalog.V1.CatalogService.CatalogServiceClient>(options => {
     options.Address = catalogAddress;
@@ -178,12 +160,9 @@ builder.Services.AddGrpcClient<Catalog.V1.CatalogService.CatalogServiceClient>(o
   .AddInterceptor<RequestIdForwardingInterceptor>()
   .AddInterceptor<GrpcDeadlineInterceptor>();
 
-var warehouseGrpcUrl = builder.Configuration["WAREHOUSE_GRPC_URL"] ?? "http://kinetix-warehouse-grpc:50051";
-var identityGrpcUrl = builder.Configuration["IDENTITY_GRPC_URL"] ?? "http://kinetix-identity-service:50052";
-var paymentGrpcUrl = builder.Configuration["PAYMENT_GRPC_URL"] ?? "http://kinetix-payment-service:50056";
-var warehouseAddress = AsMesh(warehouseGrpcUrl);
-var paymentAddress = AsMesh(paymentGrpcUrl);
-var identityAddress = AsMesh(identityGrpcUrl);
+var warehouseAddress = AsMesh(settings.WarehouseGrpcUrl);
+var paymentAddress = AsMesh(settings.PaymentGrpcUrl);
+var identityAddress = AsMesh(settings.IdentityGrpcUrl);
 
 builder.Services.AddGrpcClient<Fulfillment.V1.BinStockService.BinStockServiceClient>(options => {
     options.Address = warehouseAddress;
@@ -253,17 +232,14 @@ builder.Services.AddScoped<IMerchantStanding, IdentityMerchantStanding>();
 builder.Services.AddGrpc(options => {
     options.Interceptors.Add<GrpcServerCallMetricsInterceptor>();
     options.Interceptors.Add<PeerAuthorizationInterceptor>();
+    options.Interceptors.Add<DatabaseOutageInterceptor>();
 });
 builder.Services.AddSingleton<GrpcServerCallMetricsInterceptor>();
 builder.Services.AddSingleton<PeerAuthorizationInterceptor>();
+builder.Services.AddSingleton<DatabaseOutageInterceptor>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddAccessTokens(
-    builder.Configuration["JWT_ISSUER"]
-        ?? throw new InvalidOperationException("JWT_ISSUER is required and has no default."),
-    builder.Configuration["JWT_AUDIENCE"]
-        ?? throw new InvalidOperationException("JWT_AUDIENCE is required and has no default.")
-);
+builder.Services.AddAccessTokens(settings.JwtIssuer, settings.JwtAudience);
 builder.Services.AddAuthorizationBuilder().AddOrderPolicies();
 
 builder.Services.AddScoped<IPricingClient, PricingGrpcClient>();
@@ -308,11 +284,13 @@ builder.Services.AddExceptionHandler<UnhandledExceptionHandler>();
 builder.Services.AddProblemDetails();
 
 builder.Services.AddGrpcReflection();
-builder.Services.AddControllers();
+builder.Services.AddOrderControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+
+_ = app.Services.GetRequiredService<PeerAuthorizationInterceptor>();
 
 var metrics = app.Services.GetRequiredService<KinetixMetrics>();
 metrics.RegisterGrpcServerSurface(Order.V1.OrderService.Descriptor);
@@ -344,7 +322,7 @@ lifetime.ApplicationStopped.Register(() =>
 );
 
 await WarmJwksAsync(app);
-app.Logger.LogInformation("gRPC listening on {Port} (mTLS)", grpcPort);
+app.Logger.LogInformation("gRPC listening on {Port} (mTLS)", settings.GrpcPort);
 
 static async Task WarmJwksAsync(WebApplication app) {
     var jwks = app.Services.GetRequiredService<JwksKeyProvider>();
@@ -393,8 +371,8 @@ app.MapControllers();
 
 MetricsEndpoint.Map(app, Metrics.DefaultRegistry).AllowAnonymous();
 
-app.MapGrpcService<OrderGrpcServerService>().RequireHost($"*:{grpcPort}");
-app.MapGrpcService<OrderLifecycleGrpcService>().RequireHost($"*:{grpcPort}");
+app.MapGrpcService<OrderGrpcServerService>().RequireHost($"*:{settings.GrpcPort}");
+app.MapGrpcService<OrderLifecycleGrpcService>().RequireHost($"*:{settings.GrpcPort}");
 
 app.MapGrpcReflectionService();
 

@@ -38,7 +38,47 @@ public class AccessTokenValidationTests {
         Assert.Equal(expected, response.StatusCode);
     }
 
-    private static string Mint(SecurityKey key, string? tokenUse) {
+    [Theory]
+    [InlineData("https://identity.elsewhere.test", Audience)]
+    [InlineData(Issuer, "someone-else")]
+    public async Task ARefusedTokenIsToldItIsInvalidAndNothingAboutWhy(string issuer, string audience) {
+        using var rsa = RSA.Create(2048);
+        var key = new RsaSecurityKey(rsa) { KeyId = "test" };
+
+        await using var app = await ServiceAccepting(key);
+        using var client = new HttpClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{AddressOf(app)}/api/v1/orders/my-orders");
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            Mint(key, AccessTokenValidation.AccessTokenUse, issuer, audience)
+        );
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("Bearer error=\"invalid_token\"", response.Headers.NonValidated["WWW-Authenticate"].ToString());
+    }
+
+    [Fact]
+    public async Task ARequestWithNoTokenIsChallengedWithTheSchemeAlone() {
+        using var rsa = RSA.Create(2048);
+        var key = new RsaSecurityKey(rsa) { KeyId = "test" };
+
+        await using var app = await ServiceAccepting(key);
+        using var client = new HttpClient();
+
+        using var response = await client.GetAsync($"{AddressOf(app)}/api/v1/orders/my-orders");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("Bearer", response.Headers.NonValidated["WWW-Authenticate"].ToString());
+    }
+
+    private static string Mint(
+        SecurityKey key,
+        string? tokenUse,
+        string issuer = Issuer,
+        string audience = Audience
+    ) {
         var claims = new Dictionary<string, object> { ["sub"] = Guid.NewGuid().ToString() };
         if (tokenUse is not null) {
             claims[AccessTokenValidation.TokenUseClaim] = tokenUse;
@@ -46,8 +86,8 @@ public class AccessTokenValidationTests {
 
         var now = DateTime.UtcNow;
         return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor {
-            Issuer = Issuer,
-            Audience = Audience,
+            Issuer = issuer,
+            Audience = audience,
             IssuedAt = now,
             NotBefore = now,
             Expires = now.AddMinutes(15),

@@ -23,7 +23,7 @@ public class OrderControllerTests {
         orders.Setup(s => s.CheckoutAsync(It.IsAny<string>(), It.IsAny<CheckoutRequest>(), It.IsAny<string?>()))
             .ThrowsAsync(failure);
 
-        return new OrderController(orders.Object) {
+        return new OrderController(orders.Object, TestAudit.Silent()) {
             ControllerContext = new ControllerContext {
                 HttpContext = new DefaultHttpContext {
                     User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", Customer)], "test"))
@@ -135,7 +135,7 @@ public class OrderControllerTests {
     public async Task ACartSpanningTwoMerchantsIsRefusedWithACodeTheStorefrontCanActOn() {
         var refusal = await CheckoutRefusal(new CartSpansTwoMerchantsException(2));
 
-        Assert.Equal(StatusCodes.Status400BadRequest, refusal.StatusCode);
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, refusal.StatusCode);
         Assert.Equal("CART_SPANS_TWO_MERCHANTS", Text(refusal.Value!, "error"));
 
         Assert.Contains("separately", Text(refusal.Value!, "message"));
@@ -146,7 +146,7 @@ public class OrderControllerTests {
         var empty = await CheckoutRefusal(new EmptyCartException());
         var merchantless = await CheckoutRefusal(new ProductHasNoMerchantException("PRODUCT-02"));
 
-        Assert.Equal(StatusCodes.Status400BadRequest, empty.StatusCode);
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, empty.StatusCode);
         Assert.Equal(StatusCodes.Status422UnprocessableEntity, merchantless.StatusCode);
 
         Assert.Equal("CART_EMPTY", Text(empty.Value!, "error"));
@@ -262,9 +262,9 @@ public class OrderControllerTests {
                 "409 CHECKOUT_ROLLED_BACK",
                 "409 CHECKOUT_ROLLBACK_PENDING",
                 "503 CHECKOUT_DEPENDENCY_UNAVAILABLE",
-                "400 CART_EMPTY",
+                "422 CART_EMPTY",
                 "422 PRODUCT_HAS_NO_MERCHANT",
-                "400 CART_SPANS_TWO_MERCHANTS",
+                "422 CART_SPANS_TWO_MERCHANTS",
                 "422 PRODUCT_WEIGHT_UNKNOWN",
                 "422 MERCHANT_STORE_NOT_ON_MAP",
                 "422 SHIPPING_ADDRESS_NOT_PLACED",

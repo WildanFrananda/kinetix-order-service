@@ -65,9 +65,15 @@ enough: under read committed the subquery is evaluated against the statement's s
 return the other transaction just committed.
 
 `COMPLETED` is committed before payment is asked. The release is then an obligation in
-`escrow_releases`, retried with backoff until payment accepts it, the same shape as
-`shipping_settlements`. Payment answers a hold it already released as already applied, which is what
+`escrow_releases`, retried with backoff while payment cannot be reached, the same shape as
+`shipping_settlements`; a release payment refuses (`FAILED_PRECONDITION`, `NOT_FOUND`, ...) is not retried
+and waits for staff. Payment answers a hold it already released as already applied, which is what
 the orders it released under its old 48-hour timer get.
+
+The completion's `detail` is one fixed sentence per outcome (`OrderCompletion.ReleaseRetried`,
+`ReleaseAwaitsStaff`, none when released); the cause stays in `escrow_releases.last_error` and the log.
+Until 2026-10-22 it was `last_error` itself, so a gRPC failure's text — which names payment's host and
+port — reached the admin's response. `ORDER_ALREADY_COMPLETED` no longer claims every release is retried.
 
 ## Returns
 
@@ -169,6 +175,26 @@ A token whose key order does not hold, while identity's JWKS could not be fetche
 `IDENTITY_UNAVAILABLE` (`JwksKeyProvider.CannotVouchFor`): nobody could say whether it was valid. A key
 identity does not publish while identity answers is still 401.
 
+A refused token is challenged `Bearer error="invalid_token"` and a missing one `Bearer`, nothing more:
+`IncludeErrorDetails = false`. Until 2026-10-23 the challenge carried JwtBearer's `error_description`, which
+quotes the token's own `iss` or `aud` back and says which check failed.
+
+## No setting has a default
+
+Every setting order reads at start is required and refused, naming it, when unset, empty or unreadable:
+`OrderSettings` (ports, Redis, issuer and audience, the six gRPC peers, the gRPC deadline, the shutdown
+budget), `CompensationPolicy`, the four sweeps' `KINETIX_*_SWEEP_BATCH`, `ReturnWindow`, `GeocodeDeadline`,
+`IDENTITY_JWKS_URL` and `KINETIX_GRPC_ALLOWED_PEERS`, all through `RequiredSetting`. Until 2026-10-23 the
+gRPC URLs, ports, deadline, shutdown budget, saga policy and batch sizes fell back to values in code, so
+compose never set `WAREHOUSE_GRPC_URL` or `PAYMENT_GRPC_URL` and production ran on the fallbacks; the image
+also baked `PORT=8001`. `PeerAuthorizationInterceptor` is resolved right after `Build()`: gRPC builds an
+interceptor on its first call, so a missing allow list used to fail every call instead of the start.
+The migrator needs only `DATABASE_URL`, plus `IDENTITY_GRPC_TARGET` when the S10 backfill finds orders
+without a principal, and then it stops before asking identity anything. Optional, by decision:
+`LOG_LEVEL`, `KINETIX_BUILD_VERSION`, and the estate-wide `KINETIX_PKI_DIR` (`/pki`) and
+`KINETIX_TRUST_DOMAIN` (`kinetix.local`). `OrderDbContextFactory`'s connection string is design-time only:
+`dotnet ef` builds the model from it and never connects.
+
 ## Checkout replays its Idempotency-Key
 
 A blank key is no key: it is stored as NULL, which the unique index on `(customer_principal_id,
@@ -190,9 +216,9 @@ The 500 body no longer claims nothing happened: it cannot know.
 
 ## A completed checkout ends PAID
 
-Clearing the cart after `PAID` is best effort and logged; it never fails the request, which would have
-told a charged buyer to retry. If the `PAID` write itself fails after the saga completed, the order would
-sit `PENDING_PAYMENT` with the escrow held, and the sweeper looks only at sagas still unwinding.
+Taking the bought lines out of the cart after `PAID` is best effort and logged; it never fails the request,
+which would have told a charged buyer to retry. If the `PAID` write itself fails after the saga completed, the
+order would sit `PENDING_PAYMENT` with the escrow held, and the sweeper looks only at sagas still unwinding.
 `CompletedCheckoutFinisher` runs on every `StuckSagaSweeper` pass and marks `PAID` (actor `SYSTEM`) each
 `PENDING_PAYMENT` order whose saga has been `Completed` for longer than the sweeper's five-minute grace,
 under the order row lock; `ix_orders_pending_payment` keeps that scan small.
@@ -234,6 +260,12 @@ check. A buyer cannot buy a product whose merchant principal is their own princi
 422 `ORDER_TOTAL_NOT_CHARGEABLE` before any saga step: payment refuses to hold nothing. A shipping-only
 total is above zero and is charged.
 
+400 is for a request that is malformed as sent (`FIELD_TOO_LONG`, `RECIPIENT_REQUIRED`,
+`QUANTITY_OUT_OF_RANGE`, `PRODUCT_ID_REQUIRED` for a blank `productId`, which used to reach catalog and
+come back 404 `PRODUCT_NOT_IN_CATALOG`); 422 for a well-formed request the cart's state refuses. `CART_EMPTY`
+and `CART_SPANS_TWO_MERCHANTS` were 400 until 2026-10-22 and are 422 since, beside
+`CART_LINE_QUANTITY_OUT_OF_RANGE` and `OWN_PRODUCT_NOT_PURCHASABLE`.
+
 Pricing's `InvalidArgument`, `FailedPrecondition`, `NotFound` and `OutOfRange` are its refusal, 422
 `PRICING_REFUSED` with its reason; every other failure is 503 `PRICING_UNAVAILABLE`. Catalog's `NotFound`
 and `InvalidArgument` are `PRODUCT_NOT_IN_CATALOG`; a product it names no merchant for is 422
@@ -249,6 +281,38 @@ read-modify-write with no check lost concurrent adds: twenty parallel adds of on
 rather than a lock: no lock to leak past its expiry while a catalog call is slow, and a refused write costs
 one re-read. Ten attempts are enough for ten concurrent edits of one cart, because each refusal means another
 edit landed. An unreachable Redis is 503 `CART_UNAVAILABLE`.
+
+A paid checkout takes out only what it bought (`CartService.RemoveCheckedOutAsync`), by the same
+compare-and-set: it re-reads the cart, subtracts each line's checked-out quantity, drops the voucher only if
+it is still the one the checkout read, and writes the rest — or deletes the key with `DeleteIfUnchanged`
+when nothing is left. Until 2026-10-22 it deleted the key, so a line added while the saga ran was lost
+without being ordered.
+
+## A database that cannot be asked is 503
+
+`DatabaseOutage.Explains` walks the exception chain for Npgsql's verdict: a client-side `NpgsqlException`
+that is transient (refused, timed out, broken stream, pool exhausted), or a `PostgresException` of class `08`
+or `57P01`-`57P03` / `53300`. Every HTTP route then answers 503 `DATABASE_UNAVAILABLE`
+(`UnhandledExceptionHandler`) and every gRPC method `UNAVAILABLE` (`DatabaseOutageInterceptor`). Anything the
+database answered — a unique violation, a deadlock, a serialization failure, a wrong password — stays a 500:
+those are faults to fix, not outages to wait out. Until 2026-10-22 an unreachable Postgres was 500.
+
+## A fault answers without its own text
+
+A body Kestrel refuses (`BadHttpRequestException`) answers its own status: 413 `REQUEST_BODY_TOO_LARGE` over
+the 30 MB limit, no longer 500. `AddOrderControllers`, shared by `Program.cs` and the test host, turns off
+`AllowInputFormatterExceptionMessages`, so a body the JSON reader cannot read is a 400 naming the field, not
+System.Text.Json's message with order's own type names and byte positions. The saga queue's step `detail` is
+order's own sentence when a release got no answer; the exception is logged, never stored, so the admin
+response names no peer host.
+
+## Admin actions are audited
+
+Each admin-only route (`complete`, `returns/{n}/reject`, the saga and return queues) and an admin's read of
+someone else's order (`GET /api/v1/orders/{orderId}`) writes one INFO line, `admin_action`, with `actor`
+(`sub`), `action` (`AdminActions`, `order.<verb>`), `target`, `outcome` (`done`, `refused`, `failed`) and
+`request_id`, and counts `kinetix_admin_actions_total{action,outcome}`, every pair pre-published at zero. A
+caller the policy refuses never reached an admin action and is not counted; a thrown action is `failed`.
 
 ## The 201 Location is relative
 

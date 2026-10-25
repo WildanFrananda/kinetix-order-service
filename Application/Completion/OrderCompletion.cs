@@ -17,6 +17,12 @@ public class OrderCompletion(
     ReturnWindow returnWindow,
     ILogger<OrderCompletion> logger
 ) : IOrderCompletion {
+    public const string ReleaseRetried =
+        "payment could not be asked to release the escrow; the release is retried until payment accepts it";
+
+    public const string ReleaseAwaitsStaff =
+        "payment refused to release the escrow; the release is not retried and waits for staff";
+
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromHours(1);
 
     private readonly OrderDbContext _dbContext = dbContext;
@@ -63,7 +69,7 @@ public class OrderCompletion(
         );
 
         var released = await TryReleaseAsync(release, cancellationToken);
-        return new CompletionOutcome(CompletionStatus.Completed, released, release.LastError);
+        return new CompletionOutcome(CompletionStatus.Completed, released, ReleaseDetail(release));
     }
 
     public async Task<bool> TryReleaseAsync(EscrowRelease release, CancellationToken cancellationToken) {
@@ -163,6 +169,11 @@ public class OrderCompletion(
             release.OrderNumber, release.Attempts, release.LastError, backoff
         );
     }
+
+    private static string? ReleaseDetail(EscrowRelease release) =>
+        release.ReleasedAt is not null ? null
+        : release.NextAttemptAt is not null ? ReleaseRetried
+        : ReleaseAwaitsStaff;
 
     private static CompletionOutcome Refused(CompletionStatus status, string? detail) =>
         new(status, false, detail);

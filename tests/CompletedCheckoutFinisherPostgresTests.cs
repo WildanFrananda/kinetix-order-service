@@ -116,7 +116,7 @@ public class CompletedCheckoutFinisherPostgresTests {
 
         await FinishAsync(connectionString);
 
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
         await using (var sweep = PostgresDatabase.NewDbContext(connectionString)) {
             var canceller = new SagalessCheckoutCanceller(
                 sweep,
@@ -149,7 +149,9 @@ public class CompletedCheckoutFinisherPostgresTests {
             (await check.CheckoutSagas.SingleAsync(s => s.OrderNumber == orderNumber)).NeedsAttentionAt
         );
 
-        var queue = await new SagaAdminController(check).NeedsAttention(limit: 200);
+        var queue = await new SagaAdminController(check, TestAudit.Silent()) {
+            ControllerContext = SignedIn.As("0b6f1c7e-2d4a-4e8b-9c3f-5a1d7e9b2c40"),
+        }.NeedsAttention(limit: 200);
         var row = Assert.Single(
             (List<SagaNeedingAttentionResponse>)((OkObjectResult)queue.Result!).Value!,
             r => r.OrderNumber == orderNumber

@@ -112,6 +112,45 @@ public class CartService(ICartStore store, IProductDirectory products) : ICartSe
         await _store.DeleteAsync(customerPrincipalId);
     }
 
+    public async Task RemoveCheckedOutAsync(string customerPrincipalId, CustomerCart checkedOut) {
+        for (var attempt = 1; attempt <= MaxEditAttempts; attempt++) {
+            var stored = await _store.ReadAsync(customerPrincipalId);
+            var remaining = Without(stored.Cart, checkedOut);
+
+            var written = remaining.Items.Count == 0 && remaining.AppliedVoucherCode is null
+                ? await _store.TryDeleteAsync(customerPrincipalId, stored.Version)
+                : await _store.TryReplaceAsync(customerPrincipalId, remaining, stored.Version, CartTtl);
+
+            if (written) {
+                return;
+            }
+        }
+
+        throw new CartBusyException(MaxEditAttempts);
+    }
+
+    private static CustomerCart Without(CustomerCart current, CustomerCart checkedOut) {
+        foreach (var taken in checkedOut.Items) {
+            var line = current.Items.FirstOrDefault(i => i.ProductId == taken.ProductId);
+            if (line is null) {
+                continue;
+            }
+
+            if (line.Quantity <= taken.Quantity) {
+                current.Items.Remove(line);
+            } else {
+                line.Quantity -= taken.Quantity;
+            }
+        }
+
+        if (string.Equals(current.AppliedVoucherCode, checkedOut.AppliedVoucherCode, StringComparison.Ordinal)) {
+            current.AppliedVoucherCode = null;
+        }
+
+        current.UpdatedAt = DateTime.UtcNow;
+        return current;
+    }
+
     private static void RequireQuantity(string productId, int quantity, int minimum) {
         if (quantity < minimum || quantity > CartItem.MaxQuantity) {
             throw new QuantityOutOfRangeException(productId, quantity, minimum, CartItem.MaxQuantity);

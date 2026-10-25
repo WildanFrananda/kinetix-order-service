@@ -1,4 +1,5 @@
 using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Infrastructure.Configuration;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,8 +10,6 @@ public class ShippingSettlementSweeper(
     IConfiguration configuration,
     ILogger<ShippingSettlementSweeper> logger
 ) : BackgroundService {
-    private const int DefaultBatchSize = 20;
-
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
 
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromHours(1);
@@ -18,10 +17,7 @@ public class ShippingSettlementSweeper(
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
     private readonly ILogger<ShippingSettlementSweeper> _logger = logger;
 
-    private readonly int _batchSize =
-        int.TryParse(configuration["KINETIX_SETTLEMENT_SWEEP_BATCH"], out var batch) && batch > 0
-            ? batch
-            : DefaultBatchSize;
+    private readonly int _batchSize = RequiredSetting.Count(configuration, "KINETIX_SETTLEMENT_SWEEP_BATCH");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
         await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);

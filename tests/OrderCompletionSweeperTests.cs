@@ -45,8 +45,13 @@ public class OrderCompletionSweeperTests {
     }
 
     private static OrderCompletionSweeper SweeperOver(ServiceProvider services) =>
-        new(services.GetRequiredService<IServiceScopeFactory>(), SevenDays,
-            new ConfigurationBuilder().Build(), NullLogger<OrderCompletionSweeper>.Instance
+        new(
+            services.GetRequiredService<IServiceScopeFactory>(),
+            SevenDays,
+            new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["KINETIX_COMPLETION_SWEEP_BATCH"] = "20" })
+                .Build(),
+            NullLogger<OrderCompletionSweeper>.Instance
         );
 
     private static OrderEntity Delivered(string orderNumber, double daysAgo) => new() {

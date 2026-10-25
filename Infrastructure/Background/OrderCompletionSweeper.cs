@@ -1,6 +1,7 @@
 using Kinetix.OrderService.Application.Completion;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Enums;
+using Kinetix.OrderService.Infrastructure.Configuration;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Kinetix.OrderService.Application.Lifecycle;
@@ -13,18 +14,13 @@ public class OrderCompletionSweeper(
     IConfiguration configuration,
     ILogger<OrderCompletionSweeper> logger
 ) : BackgroundService {
-    private const int DefaultBatchSize = 20;
-
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
 
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
     private readonly ReturnWindow _returnWindow = returnWindow;
     private readonly ILogger<OrderCompletionSweeper> _logger = logger;
 
-    private readonly int _batchSize =
-        int.TryParse(configuration["KINETIX_COMPLETION_SWEEP_BATCH"], out var batch) && batch > 0
-            ? batch
-            : DefaultBatchSize;
+    private readonly int _batchSize = RequiredSetting.Count(configuration, "KINETIX_COMPLETION_SWEEP_BATCH");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
         await Task.Delay(TimeSpan.FromSeconds(45), stoppingToken);

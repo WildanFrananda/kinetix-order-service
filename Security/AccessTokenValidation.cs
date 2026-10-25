@@ -11,6 +11,7 @@ public static class AccessTokenValidation {
     public const string RoleClaim = "role";
 
     private const string BearerPrefix = "Bearer ";
+    private const string InvalidTokenError = "invalid_token";
 
     public static IServiceCollection AddAccessTokens(this IServiceCollection services, string issuer, string audience) {
         services.AddSingleton<JwksKeyProvider>();
@@ -27,6 +28,7 @@ public static class AccessTokenValidation {
     public static void Apply(JwtBearerOptions options, string issuer, string audience) {
         options.RequireHttpsMetadata = false;
         options.MapInboundClaims = false;
+        options.IncludeErrorDetails = false;
         options.TokenValidationParameters = new TokenValidationParameters {
             ValidateIssuer = true,
             ValidIssuer = issuer,
@@ -50,6 +52,8 @@ public static class AccessTokenValidation {
                 if (context.AuthenticateFailure is null) {
                     return;
                 }
+
+                context.Error = InvalidTokenError;
 
                 var jwks = context.HttpContext.RequestServices.GetService<JwksKeyProvider>();
                 if (jwks is null || !jwks.CannotVouchFor(KeyIdOf(context.Request))) {

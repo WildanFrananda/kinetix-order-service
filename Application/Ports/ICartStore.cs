@@ -13,5 +13,7 @@ public interface ICartStore {
         TimeSpan timeToLive
     );
 
+    Task<bool> TryDeleteAsync(string customerPrincipalId, string expectedVersion);
+
     Task DeleteAsync(string customerPrincipalId);
 }

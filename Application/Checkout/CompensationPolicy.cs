@@ -1,20 +1,11 @@
 using Grpc.Core;
 using Kinetix.OrderService.Domain.Enums;
+using Kinetix.OrderService.Infrastructure.Configuration;
 
 namespace Kinetix.OrderService.Application.Checkout;
 
 public class CompensationPolicy {
-    private const int DefaultMaxAttempts = 6;
-    private const int DefaultLeaseSeconds = 60;
-    private const int DefaultBaseDelaySeconds = 30;
-    private const int DefaultMaxDelaySeconds = 30 * 60;
-
-    public CompensationPolicy(
-        int maxAttempts = DefaultMaxAttempts,
-        int leaseSeconds = DefaultLeaseSeconds,
-        int baseDelaySeconds = DefaultBaseDelaySeconds,
-        int maxDelaySeconds = DefaultMaxDelaySeconds
-    ) {
+    public CompensationPolicy(int maxAttempts, int leaseSeconds, int baseDelaySeconds, int maxDelaySeconds) {
         MaxAttempts = Math.Max(1, maxAttempts);
         LeaseSeconds = Math.Max(5, leaseSeconds);
         BaseDelaySeconds = Math.Max(1, baseDelaySeconds);
@@ -30,10 +21,10 @@ public class CompensationPolicy {
     public int MaxDelaySeconds { get; }
 
     public static CompensationPolicy FromConfiguration(IConfiguration configuration) => new(
-        Read(configuration, "KINETIX_SAGA_MAX_COMPENSATION_ATTEMPTS", DefaultMaxAttempts),
-        Read(configuration, "KINETIX_SAGA_LEASE_SECONDS", DefaultLeaseSeconds),
-        Read(configuration, "KINETIX_SAGA_BACKOFF_BASE_SECONDS", DefaultBaseDelaySeconds),
-        Read(configuration, "KINETIX_SAGA_BACKOFF_MAX_SECONDS", DefaultMaxDelaySeconds)
+        RequiredSetting.Count(configuration, "KINETIX_SAGA_MAX_COMPENSATION_ATTEMPTS"),
+        RequiredSetting.Count(configuration, "KINETIX_SAGA_LEASE_SECONDS"),
+        RequiredSetting.Count(configuration, "KINETIX_SAGA_BACKOFF_BASE_SECONDS"),
+        RequiredSetting.Count(configuration, "KINETIX_SAGA_BACKOFF_MAX_SECONDS")
     );
 
     public int DelaySeconds(int attemptsSoFar) {
@@ -63,7 +54,4 @@ public class CompensationPolicy {
     public static bool LooksAlreadyReleased(string? detail) =>
         detail is not null
         && detail.Contains("already released", StringComparison.OrdinalIgnoreCase);
-
-    private static int Read(IConfiguration configuration, string key, int fallback) =>
-        int.TryParse(configuration[key], out var value) && value > 0 ? value : fallback;
 }

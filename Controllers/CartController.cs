@@ -34,6 +34,14 @@ public class CartController(ICartService cartService) : ControllerBase {
             return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
 
+        if (string.IsNullOrWhiteSpace(request.ProductId)) {
+            return BadRequest(new {
+                error = "PRODUCT_ID_REQUIRED",
+                field = "productId",
+                message = "name the product to add to the cart",
+            });
+        }
+
         return await Answer(() => _cartService.AddItemAsync(customerPrincipalId, request));
     }
 

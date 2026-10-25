@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Kinetix.OrderService.Application.Completion;
 using Kinetix.OrderService.Application.Lifecycle;
 using Kinetix.OrderService.Application.Ports;
@@ -17,7 +18,9 @@ public class OrderCompletionControllerTests {
             .Setup(c => c.CompleteAsync("ORD-1", false, LifecycleActor.Admin(Admin), It.IsAny<CancellationToken>()))
             .ReturnsAsync(outcome);
 
-        var controller = new OrderCompletionController(completion.Object) { ControllerContext = SignedIn.As(Admin) };
+        var controller = new OrderCompletionController(completion.Object, TestAudit.Silent()) {
+            ControllerContext = SignedIn.As(Admin),
+        };
 
         return await controller.Complete("ORD-1", CancellationToken.None);
     }
@@ -25,7 +28,9 @@ public class OrderCompletionControllerTests {
     [Fact]
     public async Task ACompletionWhoseTokenNamesNobodyIsRefusedBeforeAnythingChanges() {
         var completion = new Mock<IOrderCompletion>(MockBehavior.Strict);
-        var controller = new OrderCompletionController(completion.Object) { ControllerContext = SignedIn.As(null) };
+        var controller = new OrderCompletionController(completion.Object, TestAudit.Silent()) {
+            ControllerContext = SignedIn.As(null),
+        };
 
         var result = await controller.Complete("ORD-1", CancellationToken.None);
 
@@ -34,11 +39,23 @@ public class OrderCompletionControllerTests {
 
     [Fact]
     public async Task AnAdminCompletionNeverWaitsForTheWindowAndSaysWhetherTheMerchantWasPaid() {
-        var result = await Answer(new CompletionOutcome(CompletionStatus.Completed, false, "payment is restarting"));
+        var result = await Answer(
+            new CompletionOutcome(CompletionStatus.Completed, false, OrderCompletion.ReleaseRetried)
+        );
 
         var body = Assert.IsType<OrderCompletionResponse>(Assert.IsType<OkObjectResult>(result).Value);
         Assert.False(body.EscrowReleased);
-        Assert.Equal("payment is restarting", body.Detail);
+        Assert.Equal(OrderCompletion.ReleaseRetried, body.Detail);
+    }
+
+    [Fact]
+    public async Task AnAlreadyCompletedOrderPromisesNoRetryForAReleaseThatWaitsForStaff() {
+        var result = await Answer(new CompletionOutcome(CompletionStatus.AlreadyCompleted, false, null));
+
+        var body = JsonSerializer.Serialize(Assert.IsType<ConflictObjectResult>(result).Value);
+        Assert.Contains("ORDER_ALREADY_COMPLETED", body);
+        Assert.DoesNotContain("until payment accepts", body);
+        Assert.Contains("staff", body);
     }
 
     [Theory]

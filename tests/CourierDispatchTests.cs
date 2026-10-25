@@ -2,6 +2,7 @@ using Common.V1;
 using Fleet.V1;
 using Grpc.Core;
 using Kinetix.OrderService.Application.Checkout;
+using Kinetix.OrderService.Application.Delivery;
 using Kinetix.OrderService.Application.Exceptions;
 using Kinetix.OrderService.Application.Fulfillment;
 using Kinetix.OrderService.Application.Ports;
@@ -11,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using DomainStatus = Kinetix.OrderService.Domain.Enums.OrderStatus;
 using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
 
@@ -158,7 +160,9 @@ public class CourierDispatchTests {
 
             await new CourierDispatchSweeper(
                 services.GetRequiredService<IServiceScopeFactory>(),
-                new ConfigurationBuilder().Build(),
+                new ConfigurationBuilder()
+                    .AddInMemoryCollection(new Dictionary<string, string?> { ["KINETIX_DISPATCH_SWEEP_BATCH"] = "20" })
+                    .Build(),
                 NullLogger<CourierDispatchSweeper>.Instance
             ).SweepAsync(CancellationToken.None);
         }
@@ -207,6 +211,32 @@ public class CourierDispatchTests {
         Assert.NotNull(row.AwbRecordedAt);
         Assert.Null(row.NextAttemptAt);
         Assert.Equal(Awb, world.Warehouse.LastAwb);
+    }
+
+    [Fact]
+    public async Task TheCourierPaidIsTheOneWhoReportedTheDelivery_NotTheOneFirstAssigned() {
+        const string firstAssigned = "33333333-3333-3333-3333-333333333333";
+        const string delivering = "44444444-4444-4444-4444-444444444444";
+        var world = await PaidOrder();
+        world.Courier.Answers.Enqueue(() => new DispatchCourierResponse {
+            Success = true,
+            DispatchRef = "DISP-7",
+            AwbNumber = Awb,
+            AssignedDriverPrincipalId = firstAssigned,
+        });
+        await world.Packed();
+
+        var escrow = new Mock<IEscrowClient>();
+        escrow.Setup(e => e.SettleShippingFeeAsync(OrderNumber, It.IsAny<string>())).ReturnsAsync(StepResult.Ok());
+        using (var db = world.Db()) {
+            await new OrderDeliveredHandler(db, escrow.Object, NullLogger<OrderDeliveredHandler>.Instance)
+                .HandleAsync(OrderNumber, delivering, DateTime.UtcNow);
+        }
+
+        using var read = world.Db();
+        Assert.Equal(delivering, (await read.ShippingSettlements.SingleAsync()).DriverPrincipalId);
+        escrow.Verify(e => e.SettleShippingFeeAsync(OrderNumber, delivering), Times.Once);
+        escrow.Verify(e => e.SettleShippingFeeAsync(OrderNumber, firstAssigned), Times.Never);
     }
 
     [Fact]

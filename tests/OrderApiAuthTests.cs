@@ -180,6 +180,7 @@ public class OrderApiAuthTests {
         ));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("Bearer error=\"invalid_token\"", response.Headers.NonValidated["WWW-Authenticate"].ToString());
     }
 
     [Fact]

@@ -53,7 +53,9 @@ public class ReturnAdminControllerTests {
         );
         await db.SaveChangesAsync();
 
-        var result = await new ReturnAdminController(db, Mock.Of<IReturnRejection>()).NeedsAttention();
+        var result = await new ReturnAdminController(db, Mock.Of<IReturnRejection>(), TestAudit.Silent()) {
+            ControllerContext = SignedIn.As(Admin),
+        }.NeedsAttention();
 
         var body = Assert.IsType<List<ReturnNeedingAttentionResponse>>(
             Assert.IsType<OkObjectResult>(result.Result).Value
@@ -74,7 +76,9 @@ public class ReturnAdminControllerTests {
             .Setup(r => r.RejectAsync("RMA-1", "why", LifecycleActor.Admin(Admin), It.IsAny<CancellationToken>()))
             .ReturnsAsync(status);
 
-        var controller = new ReturnAdminController(db, rejection.Object) { ControllerContext = SignedIn.As(Admin) };
+        var controller = new ReturnAdminController(db, rejection.Object, TestAudit.Silent()) {
+            ControllerContext = SignedIn.As(Admin),
+        };
         var result = await controller.Reject("RMA-1", new RejectReturnRequest("why"), CancellationToken.None);
 
         Assert.IsType(expected, result);
@@ -84,7 +88,9 @@ public class ReturnAdminControllerTests {
     public async Task ARejectionWhoseTokenNamesNobodyIsRefusedBeforeAnythingChanges() {
         using var db = NewDbContext();
         var rejection = new Mock<IReturnRejection>(MockBehavior.Strict);
-        var controller = new ReturnAdminController(db, rejection.Object) { ControllerContext = SignedIn.As(null) };
+        var controller = new ReturnAdminController(db, rejection.Object, TestAudit.Silent()) {
+            ControllerContext = SignedIn.As(null),
+        };
 
         var result = await controller.Reject("RMA-1", new RejectReturnRequest("why"), CancellationToken.None);
 

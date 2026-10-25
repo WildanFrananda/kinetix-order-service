@@ -7,6 +7,7 @@ using Kinetix.OrderService.Application.Results;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.DTOs.Requests;
 using Kinetix.OrderService.DTOs.Responses;
+using Kinetix.OrderService.Infrastructure.Observability;
 using Kinetix.OrderService.Security;
 
 namespace Kinetix.OrderService.Controllers;
@@ -14,10 +15,12 @@ namespace Kinetix.OrderService.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/v1/orders")]
-public class OrderController(IOrderService orderService) : ControllerBase {
+public class OrderController(IOrderService orderService, AdminAudit audit) : ControllerBase {
     private readonly IOrderService _orderService = orderService;
+    private readonly AdminAudit _audit = audit;
 
-    public const int MaxPageSize = 100;
+    public const int MaxPage = CustomerOrderPage.MaxPage;
+    public const int MaxPageSize = CustomerOrderPage.MaxPageSize;
 
     private bool TryGetCallerPrincipal(out string customerPrincipalId) {
         customerPrincipalId = CallerPrincipal.Of(User) ?? string.Empty;
@@ -147,7 +150,7 @@ public class OrderController(IOrderService orderService) : ControllerBase {
         } catch (CheckoutFailedException ex) {
             return CheckoutNotPlaced(ex);
         } catch (EmptyCartException ex) {
-            return BadRequest(new { error = "CART_EMPTY", message = ex.Message });
+            return UnprocessableEntity(new { error = "CART_EMPTY", message = ex.Message });
         } catch (ProductHasNoMerchantException ex) {
             return UnprocessableEntity(new {
                 error = "PRODUCT_HAS_NO_MERCHANT",
@@ -162,7 +165,7 @@ public class OrderController(IOrderService orderService) : ControllerBase {
                 message = ex.Message + ". Nothing has been charged or reserved; try again shortly.",
             });
         } catch (CartSpansTwoMerchantsException ex) {
-            return BadRequest(new {
+            return UnprocessableEntity(new {
                 error = "CART_SPANS_TWO_MERCHANTS",
                 merchantCount = ex.MerchantCount,
                 message = ex.Message,
@@ -297,8 +300,12 @@ public class OrderController(IOrderService orderService) : ControllerBase {
             return Unauthorized(new { error = "UNAUTHORIZED", message = "a verified access token is required" });
         }
 
-        if (page < 1) {
-            return BadRequest(new { error = "PAGE_OUT_OF_RANGE", message = "page counts from 1" });
+        if (page < 1 || page > MaxPage) {
+            return BadRequest(new {
+                error = "PAGE_OUT_OF_RANGE",
+                maxPage = MaxPage,
+                message = $"page is from 1 to {MaxPage}",
+            });
         }
 
         if (pageSize < 1 || pageSize > MaxPageSize) {
@@ -336,14 +343,33 @@ public class OrderController(IOrderService orderService) : ControllerBase {
 
     [HttpGet("{orderId:guid}")]
     public async Task<IActionResult> GetOrderById(Guid orderId) {
-        var order = await _orderService.GetOrderByIdAsync(orderId);
-        if (order == null || !MayRead(order)) {
+        var staff = StaffRoles.Includes(User);
+
+        OrderResponse? order;
+        try {
+            order = await _orderService.GetOrderByIdAsync(orderId);
+        } catch (Exception) {
+            if (staff) {
+                _audit.Record(HttpContext, AdminActions.OrderRead, orderId.ToString(), AdminActionOutcome.Failed);
+            }
+
+            throw;
+        }
+
+        var owner = order is not null && TryGetCallerPrincipal(out var caller) && order.CustomerPrincipalId == caller;
+        if (staff && !owner) {
+            _audit.Record(
+                HttpContext,
+                AdminActions.OrderRead,
+                orderId.ToString(),
+                order is null ? AdminActionOutcome.Refused : AdminActionOutcome.Done
+            );
+        }
+
+        if (order is null || !(owner || staff)) {
             return NotFound(new { error = "ORDER_NOT_FOUND", message = $"Order '{orderId}' not found" });
         }
 
         return Ok(order);
     }
-
-    private bool MayRead(OrderResponse order) =>
-        (TryGetCallerPrincipal(out var caller) && order.CustomerPrincipalId == caller) || StaffRoles.Includes(User);
 }

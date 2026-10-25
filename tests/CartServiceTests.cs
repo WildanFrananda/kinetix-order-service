@@ -204,4 +204,63 @@ public class CartServiceTests {
 
         Assert.Equal(3, (await _cartService.GetCartAsync(Customer)).Items[0].Quantity);
     }
+
+    [Fact]
+    public async Task ACheckoutTakesOutOnlyWhatItBought_KeepingWhatWasAddedMeanwhile() {
+        Holding(2, voucher: "SAVE10");
+        var checkedOut = await _cartService.GetCartAsync(Customer);
+        Holding(5, voucher: "SAVE10");
+
+        await _cartService.RemoveCheckedOutAsync(Customer, checkedOut);
+
+        var cart = await _cartService.GetCartAsync(Customer);
+        Assert.Equal(3, Assert.Single(cart.Items).Quantity);
+        Assert.Null(cart.AppliedVoucherCode);
+    }
+
+    [Fact]
+    public async Task AVoucherChangedWhileTheCheckoutRanStaysOnTheCart() {
+        Holding(2, voucher: "SAVE10");
+        var checkedOut = await _cartService.GetCartAsync(Customer);
+        Holding(2, voucher: "FREESHIP");
+
+        await _cartService.RemoveCheckedOutAsync(Customer, checkedOut);
+
+        var cart = await _cartService.GetCartAsync(Customer);
+        Assert.Empty(cart.Items);
+        Assert.Equal("FREESHIP", cart.AppliedVoucherCode);
+    }
+
+    [Fact]
+    public async Task ALineLoweredBelowWhatWasBoughtLeavesTheCart() {
+        Holding(3);
+        var checkedOut = await _cartService.GetCartAsync(Customer);
+        Holding(1);
+
+        await _cartService.RemoveCheckedOutAsync(Customer, checkedOut);
+
+        Assert.Empty((await _cartService.GetCartAsync(Customer)).Items);
+    }
+
+    [Fact]
+    public async Task TakingOutWhatWasBoughtMeetsAConcurrentWriteAndIsAppliedAgain() {
+        Holding(2);
+        var checkedOut = await _cartService.GetCartAsync(Customer);
+        _store.ConflictsToInject = 2;
+
+        await _cartService.RemoveCheckedOutAsync(Customer, checkedOut);
+
+        Assert.Empty((await _cartService.GetCartAsync(Customer)).Items);
+    }
+
+    [Fact]
+    public async Task TakingOutWhatWasBoughtThatKeepsMeetingWritesSaysSo() {
+        Holding(2);
+        var checkedOut = await _cartService.GetCartAsync(Customer);
+        _store.ConflictsToInject = CartService.MaxEditAttempts;
+
+        await Assert.ThrowsAsync<CartBusyException>(() => _cartService.RemoveCheckedOutAsync(Customer, checkedOut));
+
+        Assert.Equal(2, Assert.Single((await _cartService.GetCartAsync(Customer)).Items).Quantity);
+    }
 }

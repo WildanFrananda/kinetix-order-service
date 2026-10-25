@@ -62,6 +62,7 @@ public class MetricsEndpointTests {
             "kinetix_http_request_duration_seconds",
             "kinetix_grpc_server_calls_total",
             "kinetix_grpc_client_calls_total",
+            "kinetix_admin_actions_total",
             "kinetix_build_info",
         }) {
             Assert.Matches(new Regex($"^{metric}", RegexOptions.Multiline), body);
@@ -92,6 +93,20 @@ public class MetricsEndpointTests {
                 + "grpc_method=\"/pricing.v1.PricingService/CalculatePrice\",grpc_code=\"OK\"} 0",
             body
         );
+    }
+
+    [Fact]
+    public async Task EveryAdminActionAndOutcomeIsReadableBeforeTheFirstAction() {
+        var body = await ScrapeAfter((_, _) => Task.CompletedTask);
+
+        foreach (var action in AdminActions.All) {
+            foreach (var outcome in AdminActionOutcome.All) {
+                Assert.Contains(
+                    $"kinetix_admin_actions_total{{action=\"{action}\",outcome=\"{outcome}\"}} 0",
+                    body
+                );
+            }
+        }
     }
 
     [Fact]

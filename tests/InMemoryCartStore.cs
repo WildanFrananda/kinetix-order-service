@@ -52,6 +52,26 @@ public sealed class InMemoryCartStore : ICartStore {
         return Task.FromResult(true);
     }
 
+    public Task<bool> TryDeleteAsync(string customerPrincipalId, string expectedVersion) {
+        if (ConflictsToInject > 0) {
+            ConflictsToInject -= 1;
+            Put(ReadAsync(customerPrincipalId).Result.Cart);
+            return Task.FromResult(false);
+        }
+
+        var current = _carts.TryGetValue(customerPrincipalId, out var held)
+            ? held.Version.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
+
+        if (current != expectedVersion) {
+            return Task.FromResult(false);
+        }
+
+        Writes += 1;
+        _carts.Remove(customerPrincipalId);
+        return Task.FromResult(true);
+    }
+
     public Task DeleteAsync(string customerPrincipalId) {
         _carts.Remove(customerPrincipalId);
         return Task.CompletedTask;

@@ -2,6 +2,7 @@ using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
 using Common.V1;
 using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Application.Results;
 using Kinetix.OrderService.DTOs.Responses;
 using OrderProto = global::Order.V1;
 
@@ -51,8 +52,14 @@ public class OrderGrpcServerService(
             );
         }
 
+        if (request.Page > CustomerOrderPage.MaxPage) {
+            throw new RpcException(
+                new Status(StatusCode.InvalidArgument, $"page is at most {CustomerOrderPage.MaxPage}")
+            );
+        }
+
         var page = request.Page > 0 ? request.Page : 1;
-        var pageSize = request.PageSize is > 0 and <= 100 ? request.PageSize : 10;
+        var pageSize = request.PageSize is > 0 and <= CustomerOrderPage.MaxPageSize ? request.PageSize : 10;
 
         var requestedStatus = MapRequestedStatus(request.Status);
 

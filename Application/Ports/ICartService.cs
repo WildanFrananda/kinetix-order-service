@@ -11,4 +11,5 @@ public interface ICartService {
     Task<CustomerCart> ApplyVoucherAsync(string customerPrincipalId, string voucherCode);
     Task<CustomerCart> RemoveVoucherAsync(string customerPrincipalId);
     Task ClearCartAsync(string customerPrincipalId);
+    Task RemoveCheckedOutAsync(string customerPrincipalId, CustomerCart checkedOut);
 }
