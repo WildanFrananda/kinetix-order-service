@@ -35,6 +35,13 @@ updates:
         update-types:
           - minor
           - patch
+    # The MSBuild pins in Kinetix.OrderService.csproj are security pins for EF's design-time tools.
+    # MSBuild 18.11 refuses net10.0 ("upgrade your TargetFramework to net11.0"), so its majors wait for
+    # the move off .NET 10; patches on 17.14 still come through.
+    ignore:
+      - dependency-name: "Microsoft.Build.*"
+        update-types:
+          - version-update:semver-major
     commit-message:
       prefix: "deps"
   - package-ecosystem: github-actions
