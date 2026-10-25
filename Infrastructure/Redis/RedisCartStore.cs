@@ -23,6 +23,15 @@ public sealed class RedisCartStore(IConnectionMultiplexer redis) : ICartStore {
         return 1
         """;
 
+    private const string DeleteIfUnchanged = """
+        local current = redis.call('HGET', KEYS[1], 'ver')
+        if (current or '') ~= ARGV[1] then
+            return 0
+        end
+        redis.call('DEL', KEYS[1])
+        return 1
+        """;
+
     private readonly IConnectionMultiplexer _redis = redis;
 
     public async Task<StoredCart> ReadAsync(string customerPrincipalId) {
@@ -55,6 +64,20 @@ public sealed class RedisCartStore(IConnectionMultiplexer redis) : ICartStore {
             );
 
             return (long)written == 1;
+        } catch (Exception e) when (e is RedisException or RedisTimeoutException) {
+            throw new CartUnavailableException(e);
+        }
+    }
+
+    public async Task<bool> TryDeleteAsync(string customerPrincipalId, string expectedVersion) {
+        try {
+            var deleted = await _redis.GetDatabase().ScriptEvaluateAsync(
+                DeleteIfUnchanged,
+                [KeyOf(customerPrincipalId)],
+                [expectedVersion]
+            );
+
+            return (long)deleted == 1;
         } catch (Exception e) when (e is RedisException or RedisTimeoutException) {
             throw new CartUnavailableException(e);
         }

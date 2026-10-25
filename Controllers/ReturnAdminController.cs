@@ -3,6 +3,7 @@ using Kinetix.OrderService.Application.Returns;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.DTOs.Requests;
 using Kinetix.OrderService.DTOs.Responses;
+using Kinetix.OrderService.Infrastructure.Observability;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Kinetix.OrderService.Security;
 using Microsoft.AspNetCore.Authorization;
@@ -14,11 +15,18 @@ namespace Kinetix.OrderService.Controllers;
 
 [ApiController]
 [Route("api/v1/orders/returns")]
-public class ReturnAdminController(OrderDbContext dbContext, IReturnRejection rejection) : ControllerBase {
+public class ReturnAdminController(
+    OrderDbContext dbContext,
+    IReturnRejection rejection,
+    AdminAudit audit
+) : ControllerBase {
+    public const string AttentionQueue = "returns/needs-attention";
+
     private const int MaxPageSize = 200;
 
     private readonly OrderDbContext _dbContext = dbContext;
     private readonly IReturnRejection _rejection = rejection;
+    private readonly AdminAudit _audit = audit;
 
     [HttpGet("needs-attention")]
     [Authorize(Policy = SagaAdminController.SagaAdminPolicy)]
@@ -28,13 +36,19 @@ public class ReturnAdminController(OrderDbContext dbContext, IReturnRejection re
     ) {
         var take = Math.Clamp(limit, 1, MaxPageSize);
 
-        var returns = await _dbContext.OrderReturns
-            .AsNoTracking()
-            .Where(r => r.Status == ReturnStatus.OPEN
-                || (r.Status == ReturnStatus.GOODS_RECEIVED && r.NextRefundAttemptAt == null))
-            .OrderBy(r => r.OpenedAt)
-            .Take(take)
-            .ToListAsync(cancellationToken);
+        var returns = await _audit.AuditAsync(
+            HttpContext,
+            AdminActions.ReturnAttentionList,
+            AttentionQueue,
+            () => _dbContext.OrderReturns
+                .AsNoTracking()
+                .Where(r => r.Status == ReturnStatus.OPEN
+                    || (r.Status == ReturnStatus.GOODS_RECEIVED && r.NextRefundAttemptAt == null))
+                .OrderBy(r => r.OpenedAt)
+                .Take(take)
+                .ToListAsync(cancellationToken),
+            _ => AdminActionOutcome.Done
+        );
 
         return Ok(returns.Select(r => new ReturnNeedingAttentionResponse(
             r.ReturnNumber,
@@ -58,17 +72,24 @@ public class ReturnAdminController(OrderDbContext dbContext, IReturnRejection re
     ) {
         var admin = CallerPrincipal.Of(User);
         if (admin is null) {
+            _audit.Record(HttpContext, AdminActions.ReturnReject, returnNumber, AdminActionOutcome.Refused);
             return Unauthorized(new {
                 error = "PRINCIPAL_UNKNOWN",
                 message = "the token names no principal, so the rejection could not be attributed",
             });
         }
 
-        var status = await _rejection.RejectAsync(
+        var status = await _audit.AuditAsync(
+            HttpContext,
+            AdminActions.ReturnReject,
             returnNumber,
-            request?.Reason ?? string.Empty,
-            LifecycleActor.Admin(admin),
-            cancellationToken
+            () => _rejection.RejectAsync(
+                returnNumber,
+                request?.Reason ?? string.Empty,
+                LifecycleActor.Admin(admin),
+                cancellationToken
+            ),
+            done => done is ReturnRejectionStatus.Rejected ? AdminActionOutcome.Done : AdminActionOutcome.Refused
         );
 
         return status switch {

@@ -20,6 +20,9 @@ public class SagaAdminControllerTests {
             .Options
         );
 
+    private static SagaAdminController Controller(OrderDbContext db) =>
+        new(db, TestAudit.Silent()) { ControllerContext = SignedIn.As("0b6f1c7e-2d4a-4e8b-9c3f-5a1d7e9b2c40") };
+
     private static List<SagaNeedingAttentionResponse> Body(
         ActionResult<List<SagaNeedingAttentionResponse>> result
     ) =>
@@ -65,7 +68,7 @@ public class SagaAdminControllerTests {
         });
         await db.SaveChangesAsync();
 
-        var body = Body(await new SagaAdminController(db).NeedsAttention());
+        var body = Body(await Controller(db).NeedsAttention());
 
         var row = Assert.Single(body);
         Assert.Equal("CANCELLED", row.OrderStatus);
@@ -101,7 +104,7 @@ public class SagaAdminControllerTests {
         });
         await db.SaveChangesAsync();
 
-        var row = Assert.Single(Body(await new SagaAdminController(db).NeedsAttention()));
+        var row = Assert.Single(Body(await Controller(db).NeedsAttention()));
         var step = Assert.Single(row.UnreleasedSteps);
         Assert.Equal("SKU-9", step.Reference);
         Assert.Null(step.LastFailureCode);
@@ -118,7 +121,7 @@ public class SagaAdminControllerTests {
         });
         await db.SaveChangesAsync();
 
-        var controller = new SagaAdminController(db);
+        var controller = Controller(db);
         Assert.Empty(Body(await controller.NeedsAttention()));
         Assert.Equal(0, ((OkObjectResult)(await controller.NeedsAttentionCount(CancellationToken.None)).Result!).Value);
     }
@@ -146,7 +149,7 @@ public class SagaAdminControllerTests {
         });
         await db.SaveChangesAsync();
 
-        var row = Assert.Single(Body(await new SagaAdminController(db).NeedsAttention()));
+        var row = Assert.Single(Body(await Controller(db).NeedsAttention()));
         var step = Assert.Single(row.UnreleasedSteps);
 
         Assert.Contains("CancelFulfillmentTask", step.Remedy);

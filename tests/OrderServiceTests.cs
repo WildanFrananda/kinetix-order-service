@@ -15,6 +15,7 @@ using Kinetix.OrderService.DTOs.Requests;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging.Abstractions;
 using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
+using CartService = Kinetix.OrderService.Application.Services.CartService;
 using OrderApplicationService = Kinetix.OrderService.Application.Services.OrderService;
 
 namespace Kinetix.OrderService.Tests;
@@ -163,7 +164,7 @@ public class OrderServiceTests {
 
         var escrow = escrowClient ?? AcceptingEscrow().Object;
 
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
         var fulfilment = new Mock<IFulfillmentClient>();
         fulfilment.Setup(c => c.CreateTaskAsync(
             It.IsAny<string>(),
@@ -1863,7 +1864,7 @@ public class OrderServiceTests {
         Assert.Equal("KINETIX_INSTANT", result.ShippingServiceTier);
         Assert.Equal(0.0, result.DistanceKm);
 
-        cartService.Verify(s => s.ClearCartAsync(Customer), Times.Once);
+        cartService.Verify(s => s.RemoveCheckedOutAsync(Customer, It.IsAny<CustomerCart>()), Times.Once);
         pricing.Verify(
             p => p.CalculatePriceAsync(
                 "DISCOUNT10",
@@ -2519,10 +2520,67 @@ public class OrderServiceTests {
     }
 
     [Fact]
+    public async Task CheckoutAsync_ALineAddedWhileTheCheckoutRanStaysInTheCart() {
+        using var dbContext = GetInMemoryDbContext();
+        var carts = new CartService(new InMemoryCartStore(), CatalogAnswering().Object);
+        await carts.AddItemAsync(Customer, new AddCartItemRequest("PRODUCT-01", 2));
+
+        var escrow = AcceptingEscrow();
+        escrow.Setup(c => c.CreateHoldAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string?>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>(),
+            It.IsAny<decimal>()
+        )).Returns(async () => {
+            await carts.AddItemAsync(Customer, new AddCartItemRequest("PRODUCT-02", 1));
+            await carts.AddItemAsync(Customer, new AddCartItemRequest("PRODUCT-01", 1));
+            return StepResult.Ok();
+        });
+
+        var orderService = NewOrderService(
+            dbContext,
+            carts,
+            PricingPassingShippingThrough().Object,
+            ShippingReturning(RateCardFloor()).Object,
+            escrowClient: escrow.Object
+        );
+
+        var result = await orderService.CheckoutAsync(Customer, ADeliverableRequest(), "IDEMP-KEY-CART-RACE");
+
+        Assert.Equal("PAID", result.Status);
+        var cart = await carts.GetCartAsync(Customer);
+        Assert.Equal(2, cart.Items.Count);
+        Assert.Equal(1, cart.Items.Single(i => i.ProductId == "PRODUCT-01").Quantity);
+        Assert.Equal(1, cart.Items.Single(i => i.ProductId == "PRODUCT-02").Quantity);
+    }
+
+    [Fact]
+    public async Task CheckoutAsync_ACartNobodyTouchedDuringTheCheckoutIsEmptyAfterIt() {
+        using var dbContext = GetInMemoryDbContext();
+        var carts = new CartService(new InMemoryCartStore(), CatalogAnswering().Object);
+        await carts.AddItemAsync(Customer, new AddCartItemRequest("PRODUCT-01", 2));
+
+        var orderService = NewOrderService(
+            dbContext,
+            carts,
+            PricingPassingShippingThrough().Object,
+            ShippingReturning(RateCardFloor()).Object
+        );
+
+        await orderService.CheckoutAsync(Customer, ADeliverableRequest(), "IDEMP-KEY-CART-UNTOUCHED");
+
+        Assert.Empty((await carts.GetCartAsync(Customer)).Items);
+    }
+
+    [Fact]
     public async Task CheckoutAsync_ACartThatCannotBeClearedAfterPaymentStillAnswersThePaidOrder() {
         using var dbContext = GetInMemoryDbContext();
         var cartService = CartWithOneItem();
-        cartService.Setup(s => s.ClearCartAsync(Customer)).ThrowsAsync(new InvalidOperationException("redis is down"));
+        cartService.Setup(s => s.RemoveCheckedOutAsync(Customer, It.IsAny<CustomerCart>()))
+            .ThrowsAsync(new InvalidOperationException("redis is down"));
 
         var orderService = NewOrderService(
             dbContext,

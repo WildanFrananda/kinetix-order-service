@@ -1,6 +1,7 @@
 using System.Security.Cryptography.X509Certificates;
 using Grpc.Core;
 using Grpc.Core.Interceptors;
+using Kinetix.OrderService.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Http.Features;
 
 namespace Kinetix.OrderService.Security;
@@ -12,10 +13,7 @@ public sealed class PeerAuthorizationInterceptor : Interceptor {
     public PeerAuthorizationInterceptor(IConfiguration config, ILogger<PeerAuthorizationInterceptor> log) {
         _log = log;
 
-        var raw = config["KINETIX_GRPC_ALLOWED_PEERS"]
-            ?? throw new InvalidOperationException(
-                "KINETIX_GRPC_ALLOWED_PEERS is required and has no default."
-            );
+        var raw = RequiredSetting.Text(config, "KINETIX_GRPC_ALLOWED_PEERS");
 
         _allowed = PeerAllowList.Parse(raw);
 

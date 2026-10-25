@@ -74,6 +74,7 @@ public class OrderCompletionTests {
 
         Assert.Equal(CompletionStatus.Completed, outcome.Status);
         Assert.True(outcome.EscrowReleased);
+        Assert.Null(outcome.Detail);
         var order = await db.Orders.SingleAsync();
         Assert.Equal(OrderStatus.COMPLETED, order.Status);
         Assert.NotNull(order.CompletedAt);
@@ -244,6 +245,41 @@ public class OrderCompletionTests {
         Assert.Null(release.ReleasedAt);
         Assert.Null(release.NextAttemptAt);
         Assert.Equal("escrow is REFUNDED", release.LastError);
+    }
+
+    [Fact]
+    public async Task APaymentThatCouldNotBeReachedIsReportedWithoutWhatTheTransportSaid() {
+        using var db = NewDbContext();
+        await SeedOrder(db);
+        var escrow = new Mock<IEscrowClient>();
+        escrow.Setup(e => e.ReleaseHoldAsync(OrderNumber))
+            .ThrowsAsync(new RpcException(new Status(
+                StatusCode.Unavailable,
+                "Error starting gRPC call. HttpRequestException: Connection refused (kinetix-payment-service:50056)"
+            )));
+
+        var outcome = await NewCompletion(db, escrow.Object)
+            .CompleteAsync(OrderNumber, waitForReturnWindow: false, LifecycleActor.System, CancellationToken.None);
+
+        Assert.Equal(CompletionStatus.Completed, outcome.Status);
+        Assert.False(outcome.EscrowReleased);
+        Assert.Equal(OrderCompletion.ReleaseRetried, outcome.Detail);
+        Assert.Contains("kinetix-payment-service", (await db.EscrowReleases.SingleAsync()).LastError);
+    }
+
+    [Fact]
+    public async Task AReleasePaymentRefusedIsReportedAsWaitingForStaffWithoutPaymentsText() {
+        using var db = NewDbContext();
+        await SeedOrder(db);
+        var escrow = new Mock<IEscrowClient>();
+        escrow.Setup(e => e.ReleaseHoldAsync(OrderNumber))
+            .ThrowsAsync(new RpcException(new Status(StatusCode.FailedPrecondition, "escrow is REFUNDED")));
+
+        var outcome = await NewCompletion(db, escrow.Object)
+            .CompleteAsync(OrderNumber, waitForReturnWindow: false, LifecycleActor.System, CancellationToken.None);
+
+        Assert.False(outcome.EscrowReleased);
+        Assert.Equal(OrderCompletion.ReleaseAwaitsStaff, outcome.Detail);
     }
 
     [Fact]

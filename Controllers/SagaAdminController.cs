@@ -1,6 +1,7 @@
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.DTOs.Responses;
+using Kinetix.OrderService.Infrastructure.Observability;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,17 +12,49 @@ namespace Kinetix.OrderService.Controllers;
 [ApiController]
 [Authorize(Policy = SagaAdminPolicy)]
 [Route("api/v1/orders/sagas")]
-public class SagaAdminController(OrderDbContext dbContext) : ControllerBase {
+public class SagaAdminController(OrderDbContext dbContext, AdminAudit audit) : ControllerBase {
     public const string SagaAdminPolicy = "SagaAdmin";
+    public const string AttentionQueue = "sagas/needs-attention";
 
     private const int MaxPageSize = 200;
 
     private readonly OrderDbContext _dbContext = dbContext;
+    private readonly AdminAudit _audit = audit;
 
     [HttpGet("needs-attention")]
     public async Task<ActionResult<List<SagaNeedingAttentionResponse>>> NeedsAttention(
         [FromQuery] int limit = 50,
         CancellationToken cancellationToken = default
+    ) {
+        var sagas = await _audit.AuditAsync(
+            HttpContext,
+            AdminActions.SagaAttentionList,
+            AttentionQueue,
+            () => ReadNeedsAttention(limit, cancellationToken),
+            _ => AdminActionOutcome.Done
+        );
+
+        return Ok(sagas);
+    }
+
+    [HttpGet("needs-attention/count")]
+    public async Task<ActionResult<int>> NeedsAttentionCount(CancellationToken cancellationToken) {
+        var count = await _audit.AuditAsync(
+            HttpContext,
+            AdminActions.SagaAttentionCount,
+            AttentionQueue,
+            () => _dbContext.CheckoutSagas
+                .AsNoTracking()
+                .CountAsync(s => s.NeedsAttentionAt != null, cancellationToken),
+            _ => AdminActionOutcome.Done
+        );
+
+        return Ok(count);
+    }
+
+    private async Task<List<SagaNeedingAttentionResponse>> ReadNeedsAttention(
+        int limit,
+        CancellationToken cancellationToken
     ) {
         var take = Math.Clamp(limit, 1, MaxPageSize);
 
@@ -33,7 +66,7 @@ public class SagaAdminController(OrderDbContext dbContext) : ControllerBase {
             .ToListAsync(cancellationToken);
 
         if (sagas.Count == 0) {
-            return Ok(new List<SagaNeedingAttentionResponse>());
+            return [];
         }
 
         var sagaIds = sagas.Select(s => s.Id).ToList();
@@ -55,7 +88,7 @@ public class SagaAdminController(OrderDbContext dbContext) : ControllerBase {
         var statusByOrder = orderStatuses.ToDictionary(o => o.OrderNumber, o => o.Status.ToString());
         var stepsBySaga = steps.GroupBy(s => s.SagaId).ToDictionary(g => g.Key, g => g.ToList());
 
-        return Ok(sagas.Select(saga => new SagaNeedingAttentionResponse(
+        return [.. sagas.Select(saga => new SagaNeedingAttentionResponse(
             saga.Id,
             saga.OrderNumber,
             saga.CustomerPrincipalId,
@@ -69,15 +102,8 @@ public class SagaAdminController(OrderDbContext dbContext) : ControllerBase {
             saga.NeedsAttentionAt,
             saga.UpdatedAt,
             [.. (stepsBySaga.GetValueOrDefault(saga.Id) ?? []).Select(ToStepResponse)]
-        )).ToList());
+        ))];
     }
-
-    [HttpGet("needs-attention/count")]
-    public async Task<ActionResult<int>> NeedsAttentionCount(CancellationToken cancellationToken) =>
-        Ok(await _dbContext.CheckoutSagas
-            .AsNoTracking()
-            .CountAsync(s => s.NeedsAttentionAt != null, cancellationToken)
-        );
 
     private static UnreleasedStepResponse ToStepResponse(CheckoutSagaStep step) => new(
         step.Name.ToString(),

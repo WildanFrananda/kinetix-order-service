@@ -1,5 +1,6 @@
 using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Infrastructure.Configuration;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,8 +11,6 @@ public class StuckSagaSweeper(
     IConfiguration configuration,
     ILogger<StuckSagaSweeper> logger
 ) : BackgroundService {
-    private const int DefaultBatchSize = 20;
-
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
 
     private const int UnattendedGraceSeconds = 5 * 60;
@@ -21,10 +20,7 @@ public class StuckSagaSweeper(
     private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
     private readonly ILogger<StuckSagaSweeper> _logger = logger;
 
-    private readonly int _batchSize =
-        int.TryParse(configuration["KINETIX_SAGA_SWEEP_BATCH"], out var batch) && batch > 0
-            ? batch
-            : DefaultBatchSize;
+    private readonly int _batchSize = RequiredSetting.Count(configuration, "KINETIX_SAGA_SWEEP_BATCH");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
         await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);

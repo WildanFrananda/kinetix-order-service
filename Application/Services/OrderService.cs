@@ -226,7 +226,7 @@ public class OrderService(
         _dbContext.ChangeStatus(order, OrderStatus.PAID, LifecycleActor.Buyer(customerPrincipalId), DateTime.UtcNow);
         await _dbContext.SaveChangesAsync();
 
-        await ClearPaidCartAsync(customerPrincipalId, orderNumber);
+        await ClearPaidCartAsync(customerPrincipalId, cart, orderNumber);
 
         return MapToOrderResponse(order, null);
     }
@@ -277,14 +277,14 @@ public class OrderService(
         return MapToOrderResponse(existing, await DriverOfAsync(existing.OrderNumber));
     }
 
-    private async Task ClearPaidCartAsync(string customerPrincipalId, string orderNumber) {
+    private async Task ClearPaidCartAsync(string customerPrincipalId, CustomerCart checkedOut, string orderNumber) {
         try {
-            await _cartService.ClearCartAsync(customerPrincipalId);
+            await _cartService.RemoveCheckedOutAsync(customerPrincipalId, checkedOut);
         } catch (Exception e) when (e is not OperationCanceledException) {
             _logger.LogWarning(
                 e,
-                "{Order} is PAID, but the buyer's cart could not be cleared; it still holds what was bought. "
-                  + "The order stands and the checkout answers it as placed",
+                "{Order} is PAID, but the lines it bought could not be taken out of the buyer's cart; it still "
+                  + "holds them. The order stands and the checkout answers it as placed",
                 orderNumber
             );
         }

@@ -547,23 +547,43 @@ public class CheckoutSagaRunner(
                 CompensationFailureCode.DownstreamRefused,
                 result.Detail
             );
+        } catch (RpcException e) when (CompensationPolicy.Classify(e) == CompensationFailureKind.Terminal) {
+            return StepCompensationOutcome.Terminal(
+                CompensationFailureCode.DownstreamRefused,
+                $"{e.StatusCode}: {e.Status.Detail}"
+            );
         } catch (RpcException e) {
-            return CompensationPolicy.Classify(e) == CompensationFailureKind.Terminal
-                ? StepCompensationOutcome.Terminal(
-                    CompensationFailureCode.DownstreamRefused,
-                    $"{e.StatusCode}: {e.Status.Detail}"
-                  )
-                : StepCompensationOutcome.Retryable(
-                    CompensationFailureCode.DownstreamUnavailable,
-                    $"{e.StatusCode}: {e.Status.Detail}"
-                  );
-        } catch (Exception e) when (e is not OperationCanceledException) {
+            LogUnanswered(e, saga, step);
             return StepCompensationOutcome.Retryable(
                 CompensationFailureCode.DownstreamUnavailable,
-                e.Message
+                $"{HolderOf(step.Name)} did not answer the release ({e.StatusCode})"
+            );
+        } catch (Exception e) when (e is not OperationCanceledException) {
+            LogUnanswered(e, saga, step);
+            return StepCompensationOutcome.Retryable(
+                CompensationFailureCode.DownstreamUnavailable,
+                $"{HolderOf(step.Name)} could not be asked to release it"
             );
         }
     }
+
+    private void LogUnanswered(Exception e, CheckoutSaga saga, CheckoutSagaStep step) {
+        _logger.LogWarning(
+            e,
+            "undoing {Step} {Reference} for {Order} got no answer from {Holder}",
+            step.Name,
+            step.Reference,
+            saga.OrderNumber,
+            HolderOf(step.Name)
+        );
+    }
+
+    private static string HolderOf(SagaStepName name) => name switch {
+        SagaStepName.RedeemVoucher or SagaStepName.AllocateFlashSaleStock => "pricing",
+        SagaStepName.ReserveStock or SagaStepName.CreateFulfillmentOrder => "warehouse",
+        SagaStepName.CreateEscrowHold => "payment",
+        _ => "the service holding it",
+    };
 
     private async Task<StepCompensationOutcome?> CompensateEscrowAsync(
         CheckoutSaga saga,
@@ -611,9 +631,10 @@ public class CheckoutSagaRunner(
         try {
             standing = await _escrowClient.GetStandingAsync(saga.OrderNumber);
         } catch (Exception e) when (e is not OperationCanceledException) {
+            _logger.LogWarning(e, "payment did not answer GetEscrowStatus for {Order}", saga.OrderNumber);
             return StepCompensationOutcome.Retryable(
                 CompensationFailureCode.DownstreamUnavailable,
-                $"payment did not answer GetEscrowStatus for a hold it had refused: {e.Message}"
+                "payment did not answer GetEscrowStatus for a hold it had refused"
             );
         }
 
@@ -644,9 +665,10 @@ public class CheckoutSagaRunner(
         try {
             standing = await _escrowClient.GetStandingAsync(saga.OrderNumber);
         } catch (Exception e) when (e is not OperationCanceledException) {
+            _logger.LogWarning(e, "payment did not answer GetEscrowStatus for {Order}", saga.OrderNumber);
             return StepCompensationOutcome.Retryable(
                 CompensationFailureCode.DownstreamUnavailable,
-                $"payment did not answer GetEscrowStatus: {e.Message}"
+                "payment did not answer GetEscrowStatus"
             );
         }
 

@@ -41,14 +41,12 @@ RUN apt-get update && apt-get install --no-install-recommends -y curl \
 WORKDIR /app
 COPY --from=build /app/publish .
 
-ENV PORT=8001
-
 EXPOSE 8001 50055
 
 USER app
 
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8001/health/ready > /dev/null || exit 1
+    CMD curl -fsS "http://127.0.0.1:${PORT}/health/ready" > /dev/null || exit 1
 
 ENTRYPOINT ["dotnet", "Kinetix.OrderService.dll"]

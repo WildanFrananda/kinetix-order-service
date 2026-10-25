@@ -5,14 +5,18 @@ namespace Kinetix.OrderService.Tests;
 
 public class ShutdownTimeoutTests {
 
-    [Fact]
-    public void TheDefaultLeavesRoomInsideTheContainersGracePeriod() {
-        Assert.Equal(TimeSpan.FromSeconds(25), ShutdownTimeout.FromEnvironment(null));
-        Assert.Equal(TimeSpan.FromSeconds(25), ShutdownTimeout.FromEnvironment("  "));
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void AMissingBudgetStopsTheServiceStarting(string? value) {
+        var failure = Assert.Throws<InvalidOperationException>(() => ShutdownTimeout.FromEnvironment(value));
+
+        Assert.Contains(ShutdownTimeout.Setting, failure.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void AnOperatorCanChangeItWithTheGracePeriod() {
+    public void AnOperatorSetsItWithTheGracePeriod() {
         Assert.Equal(TimeSpan.FromSeconds(45), ShutdownTimeout.FromEnvironment("45"));
     }
 

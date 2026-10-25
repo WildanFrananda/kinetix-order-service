@@ -65,6 +65,50 @@ public class CartRedisTests {
     }
 
     [Fact]
+    public async Task ADeleteAgainstAVersionSomeoneElseReplacedIsRefused() {
+        if (RedisUrl is null) {
+            return;
+        }
+
+        await using var redis = await ConnectionMultiplexer.ConnectAsync(RedisUrl);
+        var store = new RedisCartStore(redis);
+        var carts = CartsOver(redis);
+        var buyer = Guid.NewGuid().ToString();
+        await carts.AddItemAsync(buyer, new AddCartItemRequest(Shirt.ProductId, 1));
+
+        var read = await store.ReadAsync(buyer);
+        await carts.AddItemAsync(buyer, new AddCartItemRequest(Shirt.ProductId, 1));
+
+        Assert.False(await store.TryDeleteAsync(buyer, read.Version));
+        Assert.Equal(2, Assert.Single((await carts.GetCartAsync(buyer)).Items).Quantity);
+
+        var current = await store.ReadAsync(buyer);
+        Assert.True(await store.TryDeleteAsync(buyer, current.Version));
+        Assert.False(await redis.GetDatabase().KeyExistsAsync($"{RedisCartStore.KeyPrefix}{buyer}"));
+    }
+
+    [Fact]
+    public async Task ALineAddedWhileACheckoutRanOutlivesTheCheckoutTakingItsLines() {
+        if (RedisUrl is null) {
+            return;
+        }
+
+        await using var redis = await ConnectionMultiplexer.ConnectAsync(RedisUrl);
+        var carts = CartsOver(redis);
+        var buyer = Guid.NewGuid().ToString();
+        await carts.AddItemAsync(buyer, new AddCartItemRequest(Shirt.ProductId, 2));
+
+        var checkedOut = await carts.GetCartAsync(buyer);
+        await carts.AddItemAsync(buyer, new AddCartItemRequest(Shirt.ProductId, 1));
+        await carts.RemoveCheckedOutAsync(buyer, checkedOut);
+
+        Assert.Equal(1, Assert.Single((await carts.GetCartAsync(buyer)).Items).Quantity);
+
+        await carts.RemoveCheckedOutAsync(buyer, await carts.GetCartAsync(buyer));
+        Assert.False(await redis.GetDatabase().KeyExistsAsync($"{RedisCartStore.KeyPrefix}{buyer}"));
+    }
+
+    [Fact]
     public async Task ACartWrittenBeforeTheVersionedStoreIsReadAndEdited() {
         if (RedisUrl is null) {
             return;

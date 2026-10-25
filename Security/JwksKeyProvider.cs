@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Kinetix.OrderService.Infrastructure.Configuration;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Kinetix.OrderService.Security;
@@ -11,8 +12,7 @@ public sealed class JwksKeyProvider(
 ) {
     public static readonly TimeSpan UnknownKeyRefreshInterval = TimeSpan.FromSeconds(10);
 
-    private readonly string _url = config["IDENTITY_JWKS_URL"]
-            ?? throw new InvalidOperationException("IDENTITY_JWKS_URL is required and has no default.");
+    private readonly string _url = RequiredSetting.Text(config, "IDENTITY_JWKS_URL");
     private readonly HttpClient _http = factory.CreateClient();
     private readonly TimeProvider _clock = clock;
     private readonly ILogger<JwksKeyProvider> _log = log;

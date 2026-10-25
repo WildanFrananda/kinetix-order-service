@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Kinetix.OrderService.Application.Checkout;
+using Kinetix.OrderService.Application.Exceptions;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Application.Products;
 using Kinetix.OrderService.Application.Results;
@@ -201,11 +202,98 @@ public class OrderApiRequestTests {
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public async Task AnEmptyProductIdIsARequestFaultNotAProductCatalogLacks(string? productId) {
+        var catalog = new Mock<IProductDirectory>(MockBehavior.Strict);
+        await using var identity = await TestIdentityIssuer.PublishingAsync();
+        await using var host = await OrderApiHost.StartAsync(identity.JwksUrl, services => {
+            services.AddSingleton<ICartStore>(new InMemoryCartStore());
+            services.AddSingleton(catalog.Object);
+            services.AddScoped<ICartService, CartService>();
+        });
+        using var client = new HttpClient();
+
+        using var response = await client.SendAsync(Signed(
+            HttpMethod.Post,
+            $"{host.Address}/api/v1/cart/items",
+            identity.AccessToken(Buyer, "customer"),
+            new { productId, quantity = 1 }
+        ));
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.DoesNotContain("PRODUCT_NOT_IN_CATALOG", body);
+    }
+
+    [Fact]
+    public async Task ABodyTheJsonReaderCannotReadSaysSoWithoutTheReadersOwnText() {
+        var carts = new Mock<ICartService>(MockBehavior.Strict);
+        await using var identity = await TestIdentityIssuer.PublishingAsync();
+        await using var host = await OrderApiHost.StartAsync(identity.JwksUrl, services => {
+            services.AddSingleton(carts.Object);
+        });
+        using var client = new HttpClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{host.Address}/api/v1/cart/items") {
+            Content = new StringContent(
+                "{\"productId\":\"TSHIRT-BLK-M\",\"quantity\":\"two\"}",
+                System.Text.Encoding.UTF8,
+                "application/json"
+            ),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            identity.AccessToken(Buyer, "customer")
+        );
+
+        using var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.DoesNotContain("System.", body);
+        Assert.DoesNotContain("Kinetix.OrderService", body);
+        Assert.DoesNotContain("BytePositionInLine", body);
+    }
+
+    [Theory]
+    [InlineData("CART_EMPTY")]
+    [InlineData("CART_SPANS_TWO_MERCHANTS")]
+    public async Task ACartThatCannotBeCheckedOutAsItStandsIsUnprocessableNotMalformed(string code) {
+        var orders = new Mock<IOrderService>();
+        orders.Setup(s => s.CheckoutAsync(Buyer, It.IsAny<CheckoutRequest>(), It.IsAny<string?>()))
+            .ThrowsAsync(code == "CART_EMPTY" ? new EmptyCartException() : new CartSpansTwoMerchantsException(2));
+        await using var identity = await TestIdentityIssuer.PublishingAsync();
+        await using var host = await OrderApiHost.StartAsync(identity.JwksUrl, services => {
+            services.AddSingleton(orders.Object);
+        });
+        using var client = new HttpClient();
+
+        using var response = await client.SendAsync(Signed(
+            HttpMethod.Post,
+            $"{host.Address}/api/v1/orders/checkout",
+            identity.AccessToken(Buyer, "customer"),
+            new {
+                shippingAddress = "Jl. Sudirman No. 45, Jakarta",
+                recipientName = "Test Buyer",
+                recipientPhone = "081200000000",
+            }
+        ));
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Contains(code, body);
+    }
+
+    [Theory]
     [InlineData("page=0")]
     [InlineData("page=-1")]
     [InlineData("pageSize=0")]
     [InlineData("pageSize=-5")]
     [InlineData("pageSize=101")]
+    [InlineData("page=10001")]
+    [InlineData("page=21474838&pageSize=100")]
+    [InlineData("page=2147483647")]
     [InlineData("status=1")]
     [InlineData("status=PAID,CANCELLED")]
     [InlineData("status=LOST")]

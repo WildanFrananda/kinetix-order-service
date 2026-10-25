@@ -1,3 +1,4 @@
+using Grpc.Core;
 using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Entities;
@@ -126,7 +127,7 @@ public class CheckoutSagaRunnerTests {
         ISagaLeaseStore? leases = null,
         Mock<IFulfillmentClient>? fulfilment = null
     ) {
-        var effectivePolicy = policy ?? new CompensationPolicy();
+        var effectivePolicy = policy ?? CompensationPolicies.Standard();
         return new CheckoutSagaRunner(
             db,
             v.Object,
@@ -187,6 +188,50 @@ public class CheckoutSagaRunnerTests {
         Assert.False(outcome.Succeeded);
         stock.Verify(c => c.ReleaseStockAsync(Merchant, "SKU-1", 1, "ORD-TEST-0001"), Times.Once);
         escrow.Verify(c => c.RefundHoldAsync("ORD-TEST-0001", It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AStepThatCouldNotBeUndoneKeepsNoTransportTextForStaffToRead() {
+        using var db = NewDbContext();
+        var (voucher, flash, stock, escrow) = AllAgreeing();
+        voucher.Setup(c => c.ReleaseVoucherAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ThrowsAsync(new RpcException(new Status(
+                StatusCode.Unavailable,
+                "Error connecting to subchannel kinetix-pricing-service:50054"
+            )));
+        stock.Setup(c => c.ReleaseStockAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<int>(),
+            It.IsAny<string>()
+        ))
+            .ThrowsAsync(new InvalidOperationException("connection refused (kinetix-warehouse-grpc:50051)"));
+        escrow.Setup(c => c.RefundHoldAsync(It.IsAny<string>(), It.IsAny<string>()))
+            .ThrowsAsync(new InvalidOperationException("connection refused (kinetix-payment-service:50056)"));
+        escrow.Setup(c => c.GetStandingAsync(It.IsAny<string>()))
+            .ThrowsAsync(new InvalidOperationException("connection refused (kinetix-payment-service:50056)"));
+        var fulfilment = new Mock<IFulfillmentClient>();
+        fulfilment.Setup(c => c.CreateTaskAsync(
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<IReadOnlyList<FulfillmentLine>>()
+        ))
+            .ReturnsAsync(new FulfillmentCreated(StepResult.Refused("that merchant is unknown here"), string.Empty));
+
+        await Runner(db, voucher, flash, stock, escrow, fulfilment: fulfilment)
+            .RunAsync(PlanWith("SAVE10", ["SKU-1"]));
+
+        var held = await db.CheckoutSagaSteps
+            .Where(s => s.Name != SagaStepName.CreateFulfillmentOrder)
+            .ToListAsync();
+        Assert.Equal(3, held.Count);
+        Assert.All(held, step => {
+            Assert.NotEqual(SagaStepState.Compensated, step.State);
+            Assert.Equal(CompensationFailureCode.DownstreamUnavailable, step.LastFailureCode);
+            Assert.False(string.IsNullOrWhiteSpace(step.Detail));
+            Assert.DoesNotContain("kinetix-", step.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("subchannel", step.Detail, StringComparison.Ordinal);
+        });
     }
 
     [Fact]
@@ -390,7 +435,7 @@ public class CheckoutSagaRunnerTests {
     public async Task TheLastRoundAbandonsTheSagaInsteadOfLeavingItRetryable() {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
-        var policy = new CompensationPolicy(maxAttempts: 2);
+        var policy = CompensationPolicies.Standard(maxAttempts: 2);
 
         stock.Setup(c => c.ReserveStockAsync(It.IsAny<string>(), "SKU-2", It.IsAny<int>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Refused("no stock for SKU-2"));
@@ -421,7 +466,7 @@ public class CheckoutSagaRunnerTests {
     public async Task ASagaWhoseEveryRoundDiedIsAbandonedAtClaimTimeRatherThanParkedForever() {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
-        var policy = new CompensationPolicy(maxAttempts: 2);
+        var policy = CompensationPolicies.Standard(maxAttempts: 2);
 
         var saga = new CheckoutSaga {
             OrderNumber = "ORD-TEST-CRASHED",
@@ -445,7 +490,7 @@ public class CheckoutSagaRunnerTests {
     public async Task ALiveCheckoutHoldsALeaseThatASweeperCannotTake() {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
 
         Guid sagaId = Guid.Empty;
         var sweeperClaimed = true;
@@ -469,7 +514,7 @@ public class CheckoutSagaRunnerTests {
     public async Task AStalledCheckoutThatLosesItsLeaseCannotWriteCompletedOverTheUnwind() {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
 
         stock.Setup(c => c.ReserveStockAsync(It.IsAny<string>(), "SKU-1", It.IsAny<int>(), It.IsAny<string>()))
             .Returns(async () => {
@@ -498,7 +543,7 @@ public class CheckoutSagaRunnerTests {
     public async Task AWorkerThatLosesItsLeaseDuringACallCannotCloseTheStepItWasHolding() {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
 
         escrow.Setup(c => c.CreateHoldAsync(
             It.IsAny<string>(),
@@ -544,7 +589,7 @@ public class CheckoutSagaRunnerTests {
     public async Task AWorkerThatLostItsLeaseDoesNotGetToIssueOneMoreRelease() {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
 
         stock.Setup(c => c.ReserveStockAsync(It.IsAny<string>(), "SKU-2", It.IsAny<int>(), It.IsAny<string>()))
             .ReturnsAsync(StepResult.Refused("no stock for SKU-2"));
@@ -665,7 +710,7 @@ public class CheckoutSagaRunnerTests {
     public async Task ARefundThatNeverAnsweredIsSentAgainUnderTheSameKeyUntilTheBudgetIsSpent() {
         using var db = NewDbContext();
         var (voucher, flash, stock, escrow) = AllAgreeing();
-        var policy = new CompensationPolicy(maxAttempts: 3);
+        var policy = CompensationPolicies.Standard(maxAttempts: 3);
 
         escrow.Setup(c => c.CreateHoldAsync(
             It.IsAny<string>(),

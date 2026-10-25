@@ -42,7 +42,7 @@ public class OrderReadAccessTests {
         var orders = new Mock<IOrderService>();
         orders.Setup(s => s.GetOrderByIdAsync(OrderId)).ReturnsAsync(stored);
 
-        return new OrderController(orders.Object) {
+        return new OrderController(orders.Object, TestAudit.Silent()) {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = caller } }
         };
     }

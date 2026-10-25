@@ -1,5 +1,7 @@
+using Grpc.Core;
 using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Ports;
+using Kinetix.OrderService.Application.Results;
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.DTOs.Responses;
@@ -94,6 +96,28 @@ public class OrderPartiesTests {
         Assert.Equal(string.Empty, details.DriverPrincipalId);
     }
 
+    [Fact]
+    public async Task AListPageBeyondTheBoundIsRefusedBeforeTheDatabaseIsAsked() {
+        var orders = new Mock<IOrderService>(MockBehavior.Strict);
+        var server = new OrderGrpcServerService(
+            orders.Object,
+            new Mock<IFulfillmentPackedHandler>().Object,
+            new Mock<IOrderDeliveredHandler>().Object,
+            new Mock<IReturnsHandler>().Object
+        );
+
+        var refusal = await Assert.ThrowsAsync<RpcException>(() => server.ListOrdersForPrincipal(
+            new OrderProto.ListOrdersForPrincipalRequest {
+                PrincipalId = Customer,
+                Page = CustomerOrderPage.MaxPage + 1,
+                PageSize = CustomerOrderPage.MaxPageSize,
+            },
+            null!
+        ));
+
+        Assert.Equal(StatusCode.InvalidArgument, refusal.StatusCode);
+    }
+
     private static async Task<OrderProto.GetOrderDetailsResponse> DetailsOf(OrderResponse stored) {
         var orders = new Mock<IOrderService>();
         orders.Setup(s => s.GetOrderByIdAsync(stored.Id)).ReturnsAsync(stored);
@@ -159,7 +183,7 @@ public class OrderPartiesTests {
     }
 
     private static OrderApplicationService ServiceOver(OrderDbContext db) {
-        var policy = new CompensationPolicy();
+        var policy = CompensationPolicies.Standard();
 
         var runner = new CheckoutSagaRunner(
             db,

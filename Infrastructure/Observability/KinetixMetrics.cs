@@ -12,6 +12,7 @@ public sealed class KinetixMetrics {
     private readonly Histogram _httpRequestDuration;
     private readonly Counter _grpcServerCalls;
     private readonly Counter _grpcClientCalls;
+    private readonly Counter _adminActions;
 
     public KinetixMetrics(IMetricFactory factory, string version) {
         _httpRequests = factory.CreateCounter(
@@ -38,6 +39,12 @@ public sealed class KinetixMetrics {
             new CounterConfiguration { LabelNames = ["peer", "grpc_method", "grpc_code"] }
         );
 
+        _adminActions = factory.CreateCounter(
+            "kinetix_admin_actions_total",
+            "Actions taken by an admin, by action and whether they were done, refused or failed.",
+            new CounterConfiguration { LabelNames = ["action", "outcome"] }
+        );
+
         factory.CreateGauge(
             "kinetix_build_info",
             "Always 1. The labels are the payload: which service this is and which build.",
@@ -46,11 +53,21 @@ public sealed class KinetixMetrics {
 
         _httpRequests.WithLabels(HttpMethodLabel.Of(HttpMethods.Get), MetricsPath, "200");
         _httpRequestDuration.WithLabels(HttpMethodLabel.Of(HttpMethods.Get), MetricsPath);
+
+        foreach (var action in AdminActions.All) {
+            foreach (var outcome in AdminActionOutcome.All) {
+                _adminActions.WithLabels(action, outcome);
+            }
+        }
     }
 
     public void ObserveHttp(string method, string route, int status, double seconds) {
         _httpRequests.WithLabels(method, route, status.ToString(CultureInfo.InvariantCulture)).Inc();
         _httpRequestDuration.WithLabels(method, route).Observe(seconds);
+    }
+
+    public void ObserveAdminAction(string action, string outcome) {
+        _adminActions.WithLabels(action, outcome).Inc();
     }
 
     public void ObserveGrpcServer(string grpcMethod, string grpcCode) {
