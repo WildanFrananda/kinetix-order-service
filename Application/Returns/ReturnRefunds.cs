@@ -1,5 +1,6 @@
 using Grpc.Core;
 using Kinetix.OrderService.Application.Checkout;
+using Kinetix.OrderService.Application.Faults;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
@@ -51,7 +52,7 @@ public class ReturnRefunds(
             } catch (RpcException e) when (CompensationPolicy.Classify(e) is CompensationFailureKind.Terminal) {
                 Halt(record, e.Status.Detail);
             } catch (Exception e) when (e is not OperationCanceledException) {
-                Defer(record, e.Message);
+                Defer(record, e);
             }
         }
 
@@ -84,13 +85,14 @@ public class ReturnRefunds(
         );
     }
 
-    private void Defer(OrderReturn record, string reason) {
+    private void Defer(OrderReturn record, Exception failure) {
         var backoff = TimeSpan.FromMinutes(Math.Min(record.RefundAttempts, MaxBackoff.TotalMinutes));
 
-        record.LastRefundError = reason.Length <= 500 ? reason : reason[..500];
+        record.LastRefundError = FailureReason.Of(CalledService.Payment, failure);
         record.NextRefundAttemptAt = DateTime.UtcNow.Add(backoff);
 
         _logger.LogWarning(
+            failure,
             "{Return} still owes the buyer of {Order} {Amount} after {Attempts} attempt(s): {Reason}. "
           + "Next attempt in {Backoff}.",
             record.ReturnNumber, record.OrderNumber, record.RefundAmount, record.RefundAttempts,

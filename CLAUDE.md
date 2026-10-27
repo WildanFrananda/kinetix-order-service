@@ -71,9 +71,10 @@ and waits for staff. Payment answers a hold it already released as already appli
 the orders it released under its old 48-hour timer get.
 
 The completion's `detail` is one fixed sentence per outcome (`OrderCompletion.ReleaseRetried`,
-`ReleaseAwaitsStaff`, none when released); the cause stays in `escrow_releases.last_error` and the log.
-Until 2026-10-22 it was `last_error` itself, so a gRPC failure's text — which names payment's host and
-port — reached the admin's response. `ORDER_ALREADY_COMPLETED` no longer claims every release is retried.
+`ReleaseAwaitsStaff`, none when released); the cause stays in `escrow_releases.last_error` (a fixed
+reason, see "A stored failure names its kind") and the log. Until 2026-10-22 it was `last_error` itself,
+so a gRPC failure's text — which names payment's host and port — reached the admin's response.
+`ORDER_ALREADY_COMPLETED` no longer claims every release is retried.
 
 ## Returns
 
@@ -306,6 +307,22 @@ System.Text.Json's message with order's own type names and byte positions. The s
 order's own sentence when a release got no answer; the exception is logged, never stored, so the admin
 response names no peer host.
 
+## A stored failure names its kind, not its text
+
+A call that did not get an answer stores a fixed reason, `FailureReason.Of(CalledService, exception)`, and the
+exception goes to the log, with the request id when a request caused it: `{SERVICE}_UNAVAILABLE` (gRPC
+`Unavailable`), `{SERVICE}_TIMED_OUT` (`DeadlineExceeded`), `{SERVICE}_REFUSED` (a refusal by
+`CompensationPolicy`), `{SERVICE}_FAILED` (any other status) and `UNEXPECTED_FAILURE` (not an `RpcException`:
+the mesh handler, a certificate, a bug). `SERVICE` is `PAYMENT`, `IDENTITY`, `MATCHING` or `WAREHOUSE`. This
+holds for `escrow_releases.last_error`, `order_returns.last_refund_error`, `shipping_settlements.last_error` and
+`courier_dispatches.last_error`. Until 2026-10-27 they stored `e.Message`, which for an `RpcException`
+carries the transport's text (payment's host and port), and for payment's `ABORTED` its database error.
+
+A refusal whose answer order stops for (a release or a goods refund payment refused) still stores payment's own
+`Status.Detail`, and the matching and warehouse refusals of a dispatch their own messages: they are the reason
+a person needs, written by the service that refused, and that is what `lastRefundError` in the returns queue
+shows. The settlement retries a refusal like any failure, so it stores `PAYMENT_REFUSED`.
+
 ## Admin actions are audited
 
 Each admin-only route (`complete`, `returns/{n}/reject`, the saga and return queues) and an admin's read of
@@ -313,6 +330,14 @@ someone else's order (`GET /api/v1/orders/{orderId}`) writes one INFO line, `adm
 (`sub`), `action` (`AdminActions`, `order.<verb>`), `target`, `outcome` (`done`, `refused`, `failed`) and
 `request_id`, and counts `kinetix_admin_actions_total{action,outcome}`, every pair pre-published at zero. A
 caller the policy refuses never reached an admin action and is not counted; a thrown action is `failed`.
+
+## A buyer's orders are newest first, ties by id
+
+`GetCustomerOrdersAsync` (`GET /api/v1/orders/my-orders` and `ListOrdersForPrincipal`) orders by
+`created_at` descending, then `id` descending. Until 2026-10-27 it ordered by `created_at` alone before
+`Skip`/`Take`, so two orders of one buyer at the same instant could swap between pages: one shown twice, the
+other never. `ix_orders_customer_newest_first` (`customer_principal_id, created_at, id`) serves that order
+without a sort and replaced `IX_orders_customer_principal_id`, which it covers.
 
 ## The 201 Location is relative
 

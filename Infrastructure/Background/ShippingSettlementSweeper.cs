@@ -1,3 +1,4 @@
+using Kinetix.OrderService.Application.Faults;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Infrastructure.Configuration;
 using Kinetix.OrderService.Infrastructure.Persistence;
@@ -39,7 +40,7 @@ public class ShippingSettlementSweeper(
         }
     }
 
-    private async Task SweepAsync(CancellationToken stoppingToken) {
+    public async Task SweepAsync(CancellationToken stoppingToken) {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
         var escrowClient = scope.ServiceProvider.GetRequiredService<IEscrowClient>();
@@ -83,23 +84,24 @@ public class ShippingSettlementSweeper(
                         settlement.OrderNumber, settlement.Attempts
                     );
                 } else {
-                    Defer(settlement, result.Detail ?? "payment refused the settlement");
+                    Defer(settlement, result.Detail ?? "payment refused the settlement", null);
                 }
             } catch (Exception e) when (e is not OperationCanceledException) {
-                Defer(settlement, e.Message);
+                Defer(settlement, FailureReason.Of(CalledService.Payment, e), e);
             }
         }
 
         await dbContext.SaveChangesAsync(stoppingToken);
     }
 
-    private void Defer(Domain.Entities.ShippingSettlement settlement, string reason) {
+    private void Defer(Domain.Entities.ShippingSettlement settlement, string reason, Exception? failure) {
         var backoff = TimeSpan.FromMinutes(Math.Min(settlement.Attempts, MaxBackoff.TotalMinutes));
 
         settlement.LastError = reason.Length <= 500 ? reason : reason[..500];
         settlement.NextAttemptAt = DateTime.UtcNow.Add(backoff);
 
         _logger.LogWarning(
+            failure,
             "the shipping fee for {Order} is still owed after {Attempts} attempt(s): {Reason}. "
           + "Next attempt in {Backoff}.",
             settlement.OrderNumber, settlement.Attempts, settlement.LastError, backoff
