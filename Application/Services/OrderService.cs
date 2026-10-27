@@ -636,6 +636,7 @@ public class OrderService(
 
         var orders = await query
             .OrderByDescending(o => o.CreatedAt)
+            .ThenByDescending(o => o.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync();

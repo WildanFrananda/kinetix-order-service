@@ -14,7 +14,7 @@ namespace Kinetix.OrderService.Migrations {
         protected override void BuildModel(ModelBuilder modelBuilder) {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -463,8 +463,6 @@ namespace Kinetix.OrderService.Migrations {
                     .HasDatabaseName("ix_orders_pending_payment")
                     .HasFilter("status = 'PENDING_PAYMENT'");
 
-                b.HasIndex("CustomerPrincipalId");
-
                 b.HasIndex("DeliveredAt")
                     .HasDatabaseName("ix_orders_awaiting_completion")
                     .HasFilter("status = 'DELIVERED'");
@@ -481,6 +479,9 @@ namespace Kinetix.OrderService.Migrations {
 
                 b.HasIndex("UpdatedAt", "OrderNumber")
                     .HasDatabaseName("ix_orders_changed_since");
+
+                b.HasIndex("CustomerPrincipalId", "CreatedAt", "Id")
+                    .HasDatabaseName("ix_orders_customer_newest_first");
 
                 b.ToTable("orders");
             });

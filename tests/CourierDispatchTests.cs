@@ -44,7 +44,11 @@ public class CourierDispatchTests {
                 Answers.Dequeue();
                 throw new AddressUnknownException(
                     principal,
-                    new RpcException(new Status(StatusCode.Unavailable, "identity is down"))
+                    new RpcException(new Status(
+                        StatusCode.Unavailable,
+                        "Error starting gRPC call. HttpRequestException: "
+                      + "Connection refused (kinetix-identity-service:50052)"
+                    ))
                 );
             }
 
@@ -114,10 +118,16 @@ public class CourierDispatchTests {
         };
 
     private static Func<DispatchCourierResponse> Unreachable() =>
-        () => throw new RpcException(new Status(StatusCode.Unavailable, "fleet is down"));
+        () => throw new RpcException(new Status(
+            StatusCode.Unavailable,
+            "Error starting gRPC call. HttpRequestException: Connection refused (kinetix-matching-service:50053)"
+        ));
 
     private static Func<StepResult> WarehouseUnreachable() =>
-        () => throw new RpcException(new Status(StatusCode.Unavailable, "warehouse is down"));
+        () => throw new RpcException(new Status(
+            StatusCode.Unavailable,
+            "Error starting gRPC call. HttpRequestException: Connection refused (kinetix-warehouse-service:50051)"
+        ));
 
     private static Func<DispatchCourierResponse> MeshRefusing() =>
         () => throw new InvalidOperationException("the mesh handler has no client certificate");
@@ -278,8 +288,7 @@ public class CourierDispatchTests {
         Assert.Equal(0, world.Courier.Calls);
         Assert.Null(row.DispatchedAt);
         Assert.NotNull(row.NextAttemptAt);
-        Assert.Contains("identity did not answer", row.LastError);
-        Assert.DoesNotContain("no point on the map", row.LastError);
+        Assert.Equal("IDENTITY_UNAVAILABLE", row.LastError);
 
         await world.Sweep();
 
@@ -298,7 +307,7 @@ public class CourierDispatchTests {
 
         await world.Packed();
 
-        Assert.Contains("the fleet could not be reached", (await world.Row()).LastError);
+        Assert.Equal("MATCHING_UNAVAILABLE", (await world.Row()).LastError);
 
         await world.Sweep();
 
@@ -314,7 +323,7 @@ public class CourierDispatchTests {
         await world.Packed();
 
         var row = await world.Row();
-        Assert.Contains("the fleet could not be reached: the mesh handler has no client certificate", row.LastError);
+        Assert.Equal("UNEXPECTED_FAILURE", row.LastError);
         Assert.NotNull(row.NextAttemptAt);
 
         await world.Sweep();
@@ -332,7 +341,7 @@ public class CourierDispatchTests {
         var row = await world.Row();
         Assert.NotNull(row.DispatchedAt);
         Assert.Null(row.AwbRecordedAt);
-        Assert.Contains("the mesh handler has no client certificate", row.LastError);
+        Assert.Equal("UNEXPECTED_FAILURE", row.LastError);
 
         await world.Sweep();
 
@@ -381,6 +390,7 @@ public class CourierDispatchTests {
         Assert.NotNull(row.DispatchedAt);
         Assert.Null(row.AwbRecordedAt);
         Assert.NotNull(row.NextAttemptAt);
+        Assert.Equal("WAREHOUSE_UNAVAILABLE", row.LastError);
 
         await world.Sweep();
 

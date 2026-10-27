@@ -27,6 +27,7 @@ public sealed class CapturedLogs : ILoggerProvider {
             var values = new Dictionary<string, object?>(StringComparer.Ordinal) {
                 ["level"] = logLevel.ToString(),
                 ["message"] = formatter(state, exception),
+                ["exception"] = exception,
             };
 
             if (state is IEnumerable<KeyValuePair<string, object?>> pairs) {
