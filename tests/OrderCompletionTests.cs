@@ -7,6 +7,7 @@ using Kinetix.OrderService.Domain.Enums;
 using Kinetix.OrderService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using OrderEntity = Kinetix.OrderService.Domain.Entities.Order;
@@ -222,7 +223,7 @@ public class OrderCompletionTests {
         var release = await db.EscrowReleases.SingleAsync();
         Assert.Null(release.ReleasedAt);
         Assert.True(release.NextAttemptAt > DateTime.UtcNow);
-        Assert.Contains("restarting", release.LastError, StringComparison.Ordinal);
+        Assert.Equal("PAYMENT_UNAVAILABLE", release.LastError);
 
         Assert.True(await completion.TryReleaseAsync(release, CancellationToken.None));
         Assert.NotNull(release.ReleasedAt);
@@ -264,7 +265,81 @@ public class OrderCompletionTests {
         Assert.Equal(CompletionStatus.Completed, outcome.Status);
         Assert.False(outcome.EscrowReleased);
         Assert.Equal(OrderCompletion.ReleaseRetried, outcome.Detail);
-        Assert.Contains("kinetix-payment-service", (await db.EscrowReleases.SingleAsync()).LastError);
+        Assert.Equal("PAYMENT_UNAVAILABLE", (await db.EscrowReleases.SingleAsync()).LastError);
+    }
+
+    public static TheoryData<Exception, string> FailedReleases() => new() {
+        {
+            new RpcException(new Status(
+                StatusCode.Unavailable,
+                "Error starting gRPC call. HttpRequestException: Connection refused (kinetix-payment-service:50056)"
+            )),
+            "PAYMENT_UNAVAILABLE"
+        },
+        { new RpcException(new Status(StatusCode.DeadlineExceeded, "Deadline Exceeded")), "PAYMENT_TIMED_OUT" },
+        {
+            new RpcException(new Status(
+                StatusCode.Aborted,
+                "could not execute statement [ERROR: deadlock detected] [update escrow_holds set status=?]"
+            )),
+            "PAYMENT_FAILED"
+        },
+        {
+            new RpcException(new Status(StatusCode.Internal, "the escrow call could not be completed")),
+            "PAYMENT_FAILED"
+        },
+        { new InvalidOperationException("could not read /pki/tls.crt"), "UNEXPECTED_FAILURE" },
+    };
+
+    [Theory]
+    [MemberData(nameof(FailedReleases))]
+    public async Task AReleaseThatFailedStoresAFixedReasonAndNeverTheExceptionText(
+        Exception failure,
+        string reason
+    ) {
+        using var db = NewDbContext();
+        await SeedOrder(db);
+        var escrow = new Mock<IEscrowClient>();
+        escrow.Setup(e => e.ReleaseHoldAsync(OrderNumber)).ThrowsAsync(failure);
+
+        await NewCompletion(db, escrow.Object)
+            .CompleteAsync(OrderNumber, waitForReturnWindow: false, LifecycleActor.System, CancellationToken.None);
+
+        var release = await db.EscrowReleases.SingleAsync();
+        Assert.Equal(reason, release.LastError);
+        Assert.NotNull(release.NextAttemptAt);
+    }
+
+    [Fact]
+    public async Task AReleaseThatFailedLogsTheExceptionItDidNotStore() {
+        using var db = NewDbContext();
+        await SeedOrder(db);
+        var failure = new RpcException(new Status(
+            StatusCode.Unavailable,
+            "Error starting gRPC call. HttpRequestException: Connection refused (kinetix-payment-service:50056)"
+        ));
+        var escrow = new Mock<IEscrowClient>();
+        escrow.Setup(e => e.ReleaseHoldAsync(OrderNumber)).ThrowsAsync(failure);
+        var logs = new CapturedLogs();
+        using var loggers = LoggerFactory.Create(builder => builder.AddProvider(logs));
+        var completion = new OrderCompletion(
+            db,
+            new UnlockedOrderRows(),
+            escrow.Object,
+            SevenDays,
+            loggers.CreateLogger<OrderCompletion>()
+        );
+
+        await completion.CompleteAsync(
+            OrderNumber,
+            waitForReturnWindow: false,
+            LifecycleActor.System,
+            CancellationToken.None
+        );
+
+        var logged = Assert.Single(logs.Entries, e => e["level"] is "Warning");
+        Assert.Same(failure, logged["exception"]);
+        Assert.Equal("PAYMENT_UNAVAILABLE", logged["Reason"]);
     }
 
     [Fact]

@@ -1,8 +1,8 @@
-using Grpc.Core;
 using CommonProto = global::Common.V1;
 using Fleet.V1;
 using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Exceptions;
+using Kinetix.OrderService.Application.Faults;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Entities;
 using DomainStatus = Kinetix.OrderService.Domain.Enums.OrderStatus;
@@ -54,7 +54,7 @@ public class CourierDispatcher(
             pickup = await _addresses.PickupPointAsync(dispatch.MerchantPrincipalId);
             delivery = StoredDeliveryPoint(order) ?? await _addresses.DeliveryPointAsync(order.CustomerPrincipalId);
         } catch (AddressUnknownException e) {
-            Defer(dispatch, $"{e.Message}: {e.InnerException?.Message}");
+            Defer(dispatch, FailureReason.Of(CalledService.Identity, e.InnerException ?? e), e);
             return false;
         }
 
@@ -63,7 +63,8 @@ public class CourierDispatcher(
                 : pickup is null ? "the merchant's store" : "the delivery address";
             Defer(
                 dispatch,
-                $"{missing} has no point on the map; identity places an address when it is saved"
+                $"{missing} has no point on the map; identity places an address when it is saved",
+                null
             );
 
             return false;
@@ -86,7 +87,7 @@ public class CourierDispatcher(
                 ParcelWeightGrams = order.ParcelWeightGrams ?? 0,
             });
         } catch (Exception e) when (e is not OperationCanceledException) {
-            Defer(dispatch, $"the fleet could not be reached: {FaultOf(e)}");
+            Defer(dispatch, FailureReason.Of(CalledService.Matching, e), e);
             return false;
         }
 
@@ -97,7 +98,7 @@ public class CourierDispatcher(
             if (code == OrderAlreadyFinished) {
                 Stop(dispatch, $"the fleet refused: {reason}");
             } else {
-                Defer(dispatch, $"no courier yet: {reason}");
+                Defer(dispatch, $"no courier yet: {reason}", null);
             }
 
             return false;
@@ -117,8 +118,6 @@ public class CourierDispatcher(
         return true;
     }
 
-    private static string FaultOf(Exception e) => e is RpcException rpc ? rpc.Status.Detail : e.Message;
-
     private async Task<bool> RecordAwbAsync(CourierDispatch dispatch) {
         StepResult recorded;
         try {
@@ -129,11 +128,7 @@ public class CourierDispatcher(
                 dispatch.AwbNumber ?? string.Empty
             );
         } catch (Exception e) when (e is not OperationCanceledException) {
-            Defer(
-                dispatch,
-                $"the courier is assigned and the warehouse could not be told the tracking number: {FaultOf(e)}"
-            );
-
+            Defer(dispatch, FailureReason.Of(CalledService.Warehouse, e), e);
             return false;
         }
 
@@ -150,13 +145,14 @@ public class CourierDispatcher(
         return true;
     }
 
-    private void Defer(CourierDispatch dispatch, string reason) {
+    private void Defer(CourierDispatch dispatch, string reason, Exception? failure) {
         var backoff = TimeSpan.FromMinutes(Math.Min(dispatch.Attempts, MaxBackoff.TotalMinutes));
 
         dispatch.LastError = Trim(reason);
         dispatch.NextAttemptAt = DateTime.UtcNow.Add(backoff);
 
         _logger.LogWarning(
+            failure,
             "{Order} is not fully dispatched after {Attempts} attempt(s): {Reason}. Next attempt in {Backoff}.",
             dispatch.OrderNumber,
             dispatch.Attempts,

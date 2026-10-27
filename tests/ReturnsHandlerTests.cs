@@ -417,7 +417,7 @@ public class ReturnsHandlerTests {
         Assert.True(outcome.Accepted);
         Assert.Equal(ReturnStatus.GOODS_RECEIVED, stored.Status);
         Assert.Equal(1, stored.RefundAttempts);
-        Assert.Contains("restarting", stored.LastRefundError, StringComparison.Ordinal);
+        Assert.Equal("PAYMENT_UNAVAILABLE", stored.LastRefundError);
         Assert.True(stored.NextRefundAttemptAt > DateTime.UtcNow);
 
         Assert.True(await Refunds(db, escrow.Object).TryRefundAsync(stored, CancellationToken.None));
@@ -427,6 +427,49 @@ public class ReturnsHandlerTests {
         escrow.Verify(e => e.RefundGoodsAsync(
             OrderNumber, 45000m, "Wrong size", $"return:{opened.ReturnNumber}"
         ), Times.Exactly(2));
+    }
+
+    public static TheoryData<Exception, string> FailedRefunds() => new() {
+        {
+            new RpcException(new Status(
+                StatusCode.Unavailable,
+                "Error starting gRPC call. HttpRequestException: Connection refused (kinetix-payment-service:50056)"
+            )),
+            "PAYMENT_UNAVAILABLE"
+        },
+        { new RpcException(new Status(StatusCode.DeadlineExceeded, "Deadline Exceeded")), "PAYMENT_TIMED_OUT" },
+        {
+            new RpcException(new Status(
+                StatusCode.Aborted,
+                "could not execute statement [ERROR: deadlock detected] [update escrow_holds set status=?]"
+            )),
+            "PAYMENT_FAILED"
+        },
+        { new InvalidOperationException("could not read /pki/tls.crt"), "UNEXPECTED_FAILURE" },
+    };
+
+    [Theory]
+    [MemberData(nameof(FailedRefunds))]
+    public async Task ARefundThatFailedStoresAFixedReasonAndNeverTheExceptionText(
+        Exception failure,
+        string reason
+    ) {
+        using var db = NewDbContext();
+        await SeedOrder(db);
+        var escrow = new Mock<IEscrowClient>();
+        escrow.Setup(e => e.RefundGoodsAsync(
+                It.IsAny<string>(), It.IsAny<decimal>(), It.IsAny<string>(), It.IsAny<string>()))
+            .ThrowsAsync(failure);
+        var handler = NewHandler(db, escrow.Object);
+        var opened = await handler.OpenAsync(OrderNumber, Merchant, "Wrong size");
+
+        await handler.GoodsReceivedAsync(
+            opened.ReturnNumber, Merchant, [new ReturnedLine("GAMIS-BLU-L", 1)], "A-01-1", default);
+
+        var stored = await Stored(db, opened.ReturnNumber);
+        Assert.Equal(ReturnStatus.GOODS_RECEIVED, stored.Status);
+        Assert.Equal(reason, stored.LastRefundError);
+        Assert.NotNull(stored.NextRefundAttemptAt);
     }
 
     [Fact]

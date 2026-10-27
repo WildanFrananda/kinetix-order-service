@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Kinetix.OrderService.Application.Faults;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Infrastructure.Persistence;
@@ -90,7 +91,7 @@ public class OrderDeliveredHandler(
                 settlement.NextAttemptAt = DateTime.UtcNow.AddMinutes(1);
             }
         } catch (Exception e) {
-            settlement.LastError = Trim(e.Message);
+            settlement.LastError = FailureReason.Of(CalledService.Payment, e);
             settlement.NextAttemptAt = DateTime.UtcNow.AddMinutes(1);
 
             _logger.LogWarning(

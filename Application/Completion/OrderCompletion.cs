@@ -1,5 +1,6 @@
 using Grpc.Core;
 using Kinetix.OrderService.Application.Checkout;
+using Kinetix.OrderService.Application.Faults;
 using Kinetix.OrderService.Application.Ports;
 using Kinetix.OrderService.Domain.Entities;
 using Kinetix.OrderService.Domain.Enums;
@@ -89,7 +90,7 @@ public class OrderCompletion(
         } catch (RpcException e) when (CompensationPolicy.Classify(e) is CompensationFailureKind.Terminal) {
             Halt(release, e.Status.Detail);
         } catch (Exception e) when (e is not OperationCanceledException) {
-            Defer(release, e.Message);
+            Defer(release, e);
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -157,13 +158,14 @@ public class OrderCompletion(
         );
     }
 
-    private void Defer(EscrowRelease release, string reason) {
+    private void Defer(EscrowRelease release, Exception failure) {
         var backoff = TimeSpan.FromMinutes(Math.Min(release.Attempts, MaxBackoff.TotalMinutes));
 
-        release.LastError = reason.Length <= 500 ? reason : reason[..500];
+        release.LastError = FailureReason.Of(CalledService.Payment, failure);
         release.NextAttemptAt = DateTime.UtcNow.Add(backoff);
 
         _logger.LogWarning(
+            failure,
             "the escrow for {Order} is owed to the merchant and still held after {Attempts} attempt(s): "
           + "{Reason}. Next attempt in {Backoff}.",
             release.OrderNumber, release.Attempts, release.LastError, backoff

@@ -1,3 +1,4 @@
+using Grpc.Core;
 using Kinetix.OrderService.Application.Checkout;
 using Kinetix.OrderService.Application.Delivery;
 using Kinetix.OrderService.Application.Ports;
@@ -111,7 +112,12 @@ public class OrderDeliveredHandlerTests {
     public async Task WhenPaymentIsUnreachableTheFeeIsStillRecordedAsOwedAndDueForRetry() {
         using var db = NewDbContext();
         await SeedOrder(db, "ORD-S2-0003");
-        var escrow = new StubEscrow { Throws = new InvalidOperationException("payment is down") };
+        var escrow = new StubEscrow {
+            Throws = new RpcException(new Status(
+                StatusCode.Unavailable,
+                "Error starting gRPC call. HttpRequestException: Connection refused (kinetix-payment-service:50056)"
+            )),
+        };
 
         var outcome = await NewHandler(db, escrow).HandleAsync("ORD-S2-0003", Driver, DateTime.UtcNow);
 
@@ -121,7 +127,39 @@ public class OrderDeliveredHandlerTests {
         Assert.Null(settlement.SettledAt);
         Assert.NotNull(settlement.NextAttemptAt);
         Assert.Equal(1, settlement.Attempts);
-        Assert.Contains("payment is down", settlement.LastError);
+        Assert.Equal("PAYMENT_UNAVAILABLE", settlement.LastError);
+    }
+
+    public static TheoryData<Exception, string> FailedSettlements() => new() {
+        { new RpcException(new Status(StatusCode.DeadlineExceeded, "Deadline Exceeded")), "PAYMENT_TIMED_OUT" },
+        { new RpcException(new Status(StatusCode.FailedPrecondition, "escrow is REFUNDED")), "PAYMENT_REFUSED" },
+        {
+            new RpcException(new Status(
+                StatusCode.Aborted,
+                "could not execute statement [ERROR: deadlock detected] [update escrow_holds set status=?]"
+            )),
+            "PAYMENT_FAILED"
+        },
+        { new InvalidOperationException("could not read /pki/tls.crt"), "UNEXPECTED_FAILURE" },
+    };
+
+    [Theory]
+    [MemberData(nameof(FailedSettlements))]
+    public async Task ASettlementThatFailedStoresAFixedReasonAndNeverTheExceptionText(
+        Exception failure,
+        string reason
+    ) {
+        using var db = NewDbContext();
+        await SeedOrder(db, "ORD-S2-0009");
+
+        var escrow = new StubEscrow { Throws = failure };
+
+        await NewHandler(db, escrow).HandleAsync("ORD-S2-0009", Driver, DateTime.UtcNow);
+
+        var settlement = await db.ShippingSettlements.SingleAsync();
+        Assert.Null(settlement.SettledAt);
+        Assert.NotNull(settlement.NextAttemptAt);
+        Assert.Equal(reason, settlement.LastError);
     }
 
     [Fact]
