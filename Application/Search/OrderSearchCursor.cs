@@ -36,7 +36,7 @@ public readonly record struct OrderSearchCursor(DateTime CreatedAt, Guid Id) {
         }
 
         var position = bytes[..PositionLength];
-        if (position[0] != Version || !Check(position).SequenceEqual(bytes[PositionLength..])) {
+        if (position[0] != Version || !Check(position).AsSpan().SequenceEqual(bytes[PositionLength..])) {
             return false;
         }
 

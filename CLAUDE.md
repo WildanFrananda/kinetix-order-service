@@ -414,3 +414,12 @@ They still return early without `KINETIX_TEST_POSTGRES`, so `PostgresIsConfigure
 and the database is not. Locally, start a Postgres on a free port and set the variable; a port another
 container already holds makes the tests talk to that database instead. The cart's Redis tests work the
 same way with `KINETIX_TEST_REDIS` (`host:port`) and `RedisIsConfiguredTests`.
+
+## Two compilers build this code
+
+CI's `test` and `migrations` jobs build with the newest .NET 10 SDK (`setup-dotnet` `10.0.x`, C# 14 with first-class
+spans), while the image is built by the SDK the Dockerfile pins, `mcr.microsoft.com/dotnet/sdk:10.0-preview` (a
+10.0.100 preview, without them). Code must compile on both. On 2026-11-10 the order search's cursor compared a
+`byte[]` with a `Span<byte>` through `SequenceEqual`: the newer compiler turned the array into a span, the preview
+bound `Enumerable.SequenceEqual` and failed (`CS1503`), so CI was green and `Build and push` red. The comparison is
+explicit now (`.AsSpan()`). `docker build --target build .` checks the pinned compiler locally.
