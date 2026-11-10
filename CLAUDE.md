@@ -378,12 +378,17 @@ because only the equality lets the status index be read in order.
 `OrdersSearchNewestFirstForStaff` adds `ix_orders_newest_first` (`created_at, id`),
 `ix_orders_status_newest_first` (`status, created_at, id`) and `ix_orders_merchant_newest_first`
 (`merchant_principal_id, created_at, id`); the buyer's `ix_orders_customer_newest_first` is from 2026-10-27.
-`OrderSearchPlanPostgresTests` seeds 20,000 orders in a transaction it rolls back and EXPLAINs the statement EF
-sends: no filter, a range and a cursor read the newest-first index backward, one status the status index, a
-merchant the merchant index, a frequent buyer the buyer's index, each without a sort. A filter that leaves few
-rows (a merchant past a deep cursor, a buyer with ten orders) is a bitmap read of an index and a sort of those
-rows only, which the planner prefers; a status set reads the newest-first index backward with the statuses as a
-filter. None is a sequential scan.
+`OrderSearchPlanPostgresTests` seeds 20,000 orders in a transaction it rolls back and EXPLAINs the statement EF sends:
+no filter, a range and a cursor read the newest-first index backward, one status the status index, a merchant the
+merchant index, a frequent buyer the buyer's index, each without a sort. A common status past a deep cursor
+(`CANCELLED`, a tenth of the seeded orders) may be read either way, the status index or the newest-first index with the
+status as a filter, and the test accepts both without a sort: the two cost about the same, and CI's Postgres chose the
+second where the laptop's chose the first (2026-11-10, the first CI run of the search). For the same reason the frequent
+buyer holds a hundredth of the seeded orders, not a twentieth: at a twentieth the buyer's index and the newest-first
+index cost about the same, and a fresh database (CI's on every run) chose the newest-first one. A test that names an
+index needs a filter selective enough that the choice is not close. A filter that leaves few rows (a merchant past a
+deep cursor, a buyer with ten orders) is a bitmap read of an index and a sort of those rows only, which the planner
+prefers; a status set reads the newest-first index backward with the statuses as a filter. None is a sequential scan.
 
 The audit target is `orders/search` and the names of the parameters given, in one fixed order
 (`orders/search?status&merchant&before`), never a value: principal ids and order numbers in the log would make
