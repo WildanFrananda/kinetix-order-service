@@ -9,6 +9,9 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
     public const string IdempotencyKeyIndex = "IX_orders_customer_principal_id_idempotency_key";
     public const string SagaOrderNumberIndex = "IX_checkout_sagas_order_number";
     public const string CustomerNewestFirstIndex = "ix_orders_customer_newest_first";
+    public const string NewestFirstIndex = "ix_orders_newest_first";
+    public const string StatusNewestFirstIndex = "ix_orders_status_newest_first";
+    public const string MerchantNewestFirstIndex = "ix_orders_merchant_newest_first";
 
     public DbSet<OrderEntity> Orders => Set<OrderEntity>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
@@ -81,6 +84,12 @@ public class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContex
             entity.HasIndex(e => e.OrderNumber).IsUnique();
             entity.HasIndex(e => new { e.CustomerPrincipalId, e.CreatedAt, e.Id })
                 .HasDatabaseName(CustomerNewestFirstIndex);
+            entity.HasIndex(e => new { e.CreatedAt, e.Id })
+                .HasDatabaseName(NewestFirstIndex);
+            entity.HasIndex(e => new { e.Status, e.CreatedAt, e.Id })
+                .HasDatabaseName(StatusNewestFirstIndex);
+            entity.HasIndex(e => new { e.MerchantPrincipalId, e.CreatedAt, e.Id })
+                .HasDatabaseName(MerchantNewestFirstIndex);
             entity.HasIndex(e => new { e.CustomerPrincipalId, e.IdempotencyKey })
                 .IsUnique()
                 .HasDatabaseName(IdempotencyKeyIndex);

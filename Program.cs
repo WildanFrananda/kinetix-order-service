@@ -2,6 +2,7 @@ using Kinetix.OrderService.Application.Fulfillment;
 using Kinetix.OrderService.Application.Delivery;
 using Kinetix.OrderService.Application.Returns;
 using Kinetix.OrderService.Application.Completion;
+using Kinetix.OrderService.Application.Search;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
@@ -260,6 +261,8 @@ builder.Services.AddScoped<IReturnRejection, ReturnRejection>();
 builder.Services.AddScoped<IOrderRowLock, OrderRowLock>();
 builder.Services.AddScoped<IOrderCompletion, OrderCompletion>();
 builder.Services.AddScoped<IOrderLifecycleFeed, OrderLifecycleFeed>();
+builder.Services.AddScoped<IOrderSearchRepository, OrderSearchRepository>();
+builder.Services.AddScoped<IOrderSearch, OrderSearch>();
 builder.Services.AddSingleton(ReturnWindow.FromConfiguration(builder.Configuration));
 
 builder.Services.AddSingleton<SagaWorkerIdentity>();

@@ -473,6 +473,9 @@ namespace Kinetix.OrderService.Migrations {
                 b.HasIndex("ChangeTransactionId", "OrderNumber")
                     .HasDatabaseName("ix_orders_change_feed");
 
+                b.HasIndex("CreatedAt", "Id")
+                    .HasDatabaseName("ix_orders_newest_first");
+
                 b.HasIndex("CustomerPrincipalId", "IdempotencyKey")
                     .IsUnique()
                     .HasDatabaseName("IX_orders_customer_principal_id_idempotency_key");
@@ -482,6 +485,12 @@ namespace Kinetix.OrderService.Migrations {
 
                 b.HasIndex("CustomerPrincipalId", "CreatedAt", "Id")
                     .HasDatabaseName("ix_orders_customer_newest_first");
+
+                b.HasIndex("MerchantPrincipalId", "CreatedAt", "Id")
+                    .HasDatabaseName("ix_orders_merchant_newest_first");
+
+                b.HasIndex("Status", "CreatedAt", "Id")
+                    .HasDatabaseName("ix_orders_status_newest_first");
 
                 b.ToTable("orders");
             });

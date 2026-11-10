@@ -7,6 +7,7 @@ public static class AdminActions {
     public const string SagaAttentionList = "order.saga_attention_list";
     public const string SagaAttentionCount = "order.saga_attention_count";
     public const string OrderRead = "order.read";
+    public const string OrderSearch = "order.search";
 
     public static readonly IReadOnlyList<string> All = [
         Complete,
@@ -15,5 +16,6 @@ public static class AdminActions {
         SagaAttentionList,
         SagaAttentionCount,
         OrderRead,
+        OrderSearch,
     ];
 }

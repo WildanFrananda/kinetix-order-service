@@ -325,9 +325,9 @@ shows. The settlement retries a refusal like any failure, so it stores `PAYMENT_
 
 ## Admin actions are audited
 
-Each admin-only route (`complete`, `returns/{n}/reject`, the saga and return queues) and an admin's read of
-someone else's order (`GET /api/v1/orders/{orderId}`) writes one INFO line, `admin_action`, with `actor`
-(`sub`), `action` (`AdminActions`, `order.<verb>`), `target`, `outcome` (`done`, `refused`, `failed`) and
+Each admin-only route (`complete`, `returns/{n}/reject`, the saga and return queues, the order search) and an
+admin's read of someone else's order (`GET /api/v1/orders/{orderId}`) writes one INFO line, `admin_action`, with
+`actor` (`sub`), `action` (`AdminActions`, `order.<verb>`), `target`, `outcome` (`done`, `refused`, `failed`) and
 `request_id`, and counts `kinetix_admin_actions_total{action,outcome}`, every pair pre-published at zero. A
 caller the policy refuses never reached an admin action and is not counted; a thrown action is `failed`.
 
@@ -338,6 +338,61 @@ caller the policy refuses never reached an admin action and is not counted; a th
 `Skip`/`Take`, so two orders of one buyer at the same instant could swap between pages: one shown twice, the
 other never. `ix_orders_customer_newest_first` (`customer_principal_id, created_at, id`) serves that order
 without a sort and replaced `IX_orders_customer_principal_id`, which it covers.
+
+## Staff search orders newest first, by a cursor
+
+`GET /api/v1/orders/search` (`OrderSearchController`, admin only through `SagaAdminPolicy`) is the backoffice's
+order list (infrastructure `docs/BACKOFFICE-F6.md`). Every parameter is optional and they are ANDed: `status`
+(a comma-separated set of `OrderStatus` names), `createdFrom` and `createdTo` (instants with an offset,
+`[from, to)`), `merchant` and `customer` (principal ids), `orderNumber` (exact), `before` (a cursor) and `limit`
+(1 to 100, default 50). The answer is `{ orders, nextCursor }`, each order an `OrderSummaryResponse` with no
+address, recipient or phone: an admin reads those one order at a time through `GET /api/v1/orders/{orderId}`,
+which audits each read.
+
+`OrderSearchParameters` reads the query strictly, and anything it cannot read exactly is 400 with a code naming
+the parameter (`INVALID_STATUS`, `INVALID_CREATED_RANGE`, `INVALID_MERCHANT`, `INVALID_CUSTOMER`,
+`INVALID_ORDER_NUMBER`, `INVALID_CURSOR`, `INVALID_LIMIT`, `UNKNOWN_PARAMETER`) and `parameter`, never a page. A
+filter read loosely answers a wider or emptier list than was asked, and an admin cannot tell it from the true
+one: an ignored typo of `status` shows every order, a parameter given twice has one of its values chosen, and
+`merchant=` would drop the filter. So all three are refused, as are a status in another case (`paid`) or as a
+number (`Enum.TryParse` reads `3` as `SHIPPED`), an instant without an offset (it would be read in the
+server's zone), finer than the column's microsecond or with its `+` unescaped (it arrives as a space), a
+principal that is not a 36-character UUID (matched in the lowercase form identity issues), and a range that
+ends where it starts or earlier: `[t, t)` holds nothing, so it could only answer an empty page.
+
+The order is `created_at DESC, id DESC`, and paging is keyset: `before` names the last row shown and the next
+page is the rows below it as a row comparison, `(created_at, id) < (…)` (`EF.Functions.LessThan` on tuples), so
+an order placed between two pages is neither shown twice nor pushes another off; it appears when the first page
+is read again. `OrderSearch` asks for `limit + 1` rows and gives a cursor only when the extra row exists, so the
+last page answers `nextCursor: null` instead of leading to an empty one. `OrderSearchCursor` is base64url of a
+version byte, the instant's ticks, the id and four bytes of their SHA-256, 39 characters; a cursor with a
+character changed, cut short, padded, of another version or not in canonical form is `INVALID_CURSOR`. It is a
+position, not a permission (a forged one only reaches what `createdTo` could), so it carries no key: the check
+is there so a mangled cursor is refused rather than served as some other page. It does not carry the filters;
+sent with others it still means "older than that order".
+
+`itemCount` is the number of lines, what `items` holds in the order read, counted by a correlated `count(*)` in
+the page's own statement: one SQL command per page. A single status is sent as `status = …`, not `= ANY (…)`,
+because only the equality lets the status index be read in order.
+
+`OrdersSearchNewestFirstForStaff` adds `ix_orders_newest_first` (`created_at, id`),
+`ix_orders_status_newest_first` (`status, created_at, id`) and `ix_orders_merchant_newest_first`
+(`merchant_principal_id, created_at, id`); the buyer's `ix_orders_customer_newest_first` is from 2026-10-27.
+`OrderSearchPlanPostgresTests` seeds 20,000 orders in a transaction it rolls back and EXPLAINs the statement EF
+sends: no filter, a range and a cursor read the newest-first index backward, one status the status index, a
+merchant the merchant index, a frequent buyer the buyer's index, each without a sort. A filter that leaves few
+rows (a merchant past a deep cursor, a buyer with ten orders) is a bitmap read of an index and a sort of those
+rows only, which the planner prefers; a status set reads the newest-first index backward with the statuses as a
+filter. None is a sequential scan.
+
+The audit target is `orders/search` and the names of the parameters given, in one fixed order
+(`orders/search?status&merchant&before`), never a value: principal ids and order numbers in the log would make
+it a second record of who bought from whom. A refused request is audited `refused` and counted.
+
+The search's Postgres tests run inside a transaction they roll back, at instants in 2199, so their orders are
+the newest in the shared database and nothing is left behind; the deferred lifecycle triggers never fire,
+because nothing commits. `OrderSearchEndToEndPostgresTests` commits through `RecordPlaced`, in 2098, under a
+merchant of its own.
 
 ## The 201 Location is relative
 

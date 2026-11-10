@@ -6,6 +6,7 @@ namespace Kinetix.OrderService.Domain.Entities;
 
 [Table("orders")]
 public class Order {
+    public const int OrderNumberMaxLength = 50;
     public const int ServiceTierMaxLength = 50;
     public const int AppliedVoucherMaxLength = 50;
     public const int ShippingAddressMaxLength = 500;
@@ -19,7 +20,7 @@ public class Order {
     public Guid Id { get; set; } = Guid.NewGuid();
 
     [Required]
-    [MaxLength(50)]
+    [MaxLength(OrderNumberMaxLength)]
     [Column("order_number")]
     public string OrderNumber { get; set; } = string.Empty;
 
