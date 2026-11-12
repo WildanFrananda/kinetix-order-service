@@ -253,6 +253,7 @@ builder.Services.AddScoped<IProductDirectory, CatalogProductDirectory>();
 builder.Services.AddScoped<IEscrowClient, EscrowGrpcClient>();
 builder.Services.AddScoped<IFulfillmentClient, FulfillmentGrpcClient>();
 builder.Services.AddScoped<ICourierDispatcher, CourierDispatcher>();
+builder.Services.AddScoped<ICourierDispatchClaims, CourierDispatchClaims>();
 builder.Services.AddScoped<IFulfillmentPackedHandler, FulfillmentPackedHandler>();
 builder.Services.AddScoped<IOrderDeliveredHandler, OrderDeliveredHandler>();
 builder.Services.AddScoped<IReturnsHandler, ReturnsHandler>();

@@ -9,10 +9,12 @@ namespace Kinetix.OrderService.Application.Fulfillment;
 
 public class FulfillmentPackedHandler(
     OrderDbContext dbContext,
-    ICourierDispatcher dispatcher
+    ICourierDispatcher dispatcher,
+    ICourierDispatchClaims claims
 ) : IFulfillmentPackedHandler {
     private readonly OrderDbContext _dbContext = dbContext;
     private readonly ICourierDispatcher _dispatcher = dispatcher;
+    private readonly ICourierDispatchClaims _claims = claims;
 
     public async Task<FulfillmentPackedOutcome> HandleAsync(
         string merchantPrincipalId,
@@ -75,7 +77,9 @@ public class FulfillmentPackedHandler(
 
         await _dbContext.SaveChangesAsync();
 
-        if (dispatch.NextAttemptAt is not null) {
+        if (dispatch.NextAttemptAt is not null
+            && await _claims.TryClaimAsync(orderNumber, now, CancellationToken.None)) {
+            await _dbContext.Entry(dispatch).ReloadAsync();
             await _dispatcher.AttemptAsync(dispatch, order);
             await _dbContext.SaveChangesAsync();
         }

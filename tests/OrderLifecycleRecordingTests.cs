@@ -133,7 +133,7 @@ public class OrderLifecycleRecordingTests {
         using var db = NewDbContext();
         await SeedOrder(db, OrderStatus.PAID);
 
-        await new FulfillmentPackedHandler(db, new Mock<ICourierDispatcher>().Object)
+        await new FulfillmentPackedHandler(db, new Mock<ICourierDispatcher>().Object, new TrackedDispatchClaims(db))
             .HandleAsync(Merchant, OrderNumber, "TASK-1");
 
         var recorded = await TheOnlyEvent(db);
@@ -147,7 +147,7 @@ public class OrderLifecycleRecordingTests {
     public async Task ARepeatedPackedReportLogsNothingMore() {
         using var db = NewDbContext();
         await SeedOrder(db, OrderStatus.PAID);
-        var handler = new FulfillmentPackedHandler(db, new Mock<ICourierDispatcher>().Object);
+        var handler = new FulfillmentPackedHandler(db, new Mock<ICourierDispatcher>().Object, new TrackedDispatchClaims(db));
 
         await handler.HandleAsync(Merchant, OrderNumber, "TASK-1");
         await handler.HandleAsync(Merchant, OrderNumber, "TASK-1");
