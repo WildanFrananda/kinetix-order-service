@@ -144,12 +144,17 @@ public class CourierDispatchTests {
         public OrderDbContext Db() =>
             new(new DbContextOptionsBuilder<OrderDbContext>().UseInMemoryDatabase(Database).Options);
 
+        public HeldDispatchClaims? HeldElsewhere { get; set; }
+
         public CourierDispatcher Dispatcher() =>
             new(Courier, Directory, Warehouse, NullLogger<CourierDispatcher>.Instance);
 
+        public ICourierDispatchClaims Claims(OrderDbContext db) =>
+            HeldElsewhere is null ? new TrackedDispatchClaims(db) : HeldElsewhere;
+
         public async Task<FulfillmentPackedOutcome> Packed() {
             using var db = Db();
-            return await new FulfillmentPackedHandler(db, Dispatcher())
+            return await new FulfillmentPackedHandler(db, Dispatcher(), Claims(db))
                 .HandleAsync(Merchant, OrderNumber, "TASK-1");
         }
 
@@ -166,6 +171,7 @@ public class CourierDispatchTests {
             var services = new ServiceCollection()
                 .AddDbContext<OrderDbContext>(options => options.UseInMemoryDatabase(Database))
                 .AddSingleton<ICourierDispatcher>(Dispatcher())
+                .AddScoped(provider => Claims(provider.GetRequiredService<OrderDbContext>()))
                 .BuildServiceProvider();
 
             await new CourierDispatchSweeper(
@@ -221,6 +227,59 @@ public class CourierDispatchTests {
         Assert.NotNull(row.AwbRecordedAt);
         Assert.Null(row.NextAttemptAt);
         Assert.Equal(Awb, world.Warehouse.LastAwb);
+    }
+
+    [Fact]
+    public async Task APackedReportDoesNotDispatchAnOrderAnotherWorkerIsDispatching() {
+        var world = await PaidOrder();
+        world.HeldElsewhere = new HeldDispatchClaims();
+
+        var outcome = await world.Packed();
+
+        var row = await world.Row();
+        Assert.True(outcome.Found);
+        Assert.Equal(1, world.HeldElsewhere.Asked);
+        Assert.Equal(0, world.Courier.Calls);
+        Assert.Equal(0, row.Attempts);
+        Assert.NotNull(row.NextAttemptAt);
+    }
+
+    [Fact]
+    public async Task TheSweeperLeavesADispatchItCouldNotClaim() {
+        var world = await PaidOrder();
+        world.Courier.Answers.Enqueue(Refused("NO_DRIVER_AVAILABLE"));
+        await world.Packed();
+        world.HeldElsewhere = new HeldDispatchClaims();
+
+        await world.Sweep();
+
+        var row = await world.Row();
+        Assert.Equal(1, world.HeldElsewhere.Asked);
+        Assert.Equal(1, world.Courier.Calls);
+        Assert.Equal(1, row.Attempts);
+        Assert.Null(row.DispatchedAt);
+    }
+
+    [Fact]
+    public async Task AClaimedDispatchIsNotDueAgainUntilItsLeaseRunsOut() {
+        var world = await PaidOrder();
+        world.Courier.Answers.Enqueue(Refused("NO_DRIVER_AVAILABLE"));
+        await world.Packed();
+        var now = DateTime.UtcNow;
+
+        using (var db = world.Db()) {
+            (await db.CourierDispatches.SingleAsync()).NextAttemptAt = now.AddSeconds(-1);
+            await db.SaveChangesAsync();
+
+            Assert.True(await new TrackedDispatchClaims(db).TryClaimAsync(OrderNumber, now, CancellationToken.None));
+            Assert.False(await new TrackedDispatchClaims(db).TryClaimAsync(OrderNumber, now, CancellationToken.None));
+        }
+
+        await world.Sweep(dueNow: false);
+
+        var row = await world.Row();
+        Assert.Equal(1, world.Courier.Calls);
+        Assert.Equal(now.Add(CourierDispatchClaims.Lease), row.NextAttemptAt);
     }
 
     [Fact]

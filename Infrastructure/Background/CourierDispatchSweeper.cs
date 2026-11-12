@@ -42,6 +42,7 @@ public class CourierDispatchSweeper(
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
         var dispatcher = scope.ServiceProvider.GetRequiredService<ICourierDispatcher>();
+        var claims = scope.ServiceProvider.GetRequiredService<ICourierDispatchClaims>();
 
         var now = DateTime.UtcNow;
 
@@ -62,6 +63,13 @@ public class CourierDispatchSweeper(
                 return;
             }
 
+            if (!await claims.TryClaimAsync(dispatch.OrderNumber, DateTime.UtcNow, stoppingToken)) {
+                dbContext.Entry(dispatch).State = EntityState.Detached;
+                continue;
+            }
+
+            await dbContext.Entry(dispatch).ReloadAsync(stoppingToken);
+
             var order = await dbContext.Orders.FirstOrDefaultAsync(
                 o => o.OrderNumber == dispatch.OrderNumber,
                 stoppingToken
@@ -70,12 +78,11 @@ public class CourierDispatchSweeper(
             if (order is null) {
                 dispatch.NextAttemptAt = null;
                 dispatch.LastError = "no order carries this number";
-                continue;
+            } else {
+                await dispatcher.AttemptAsync(dispatch, order);
             }
 
-            await dispatcher.AttemptAsync(dispatch, order);
+            await dbContext.SaveChangesAsync(stoppingToken);
         }
-
-        await dbContext.SaveChangesAsync(stoppingToken);
     }
 }

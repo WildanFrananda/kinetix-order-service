@@ -50,6 +50,18 @@ warehouse refuses the number; it stops quietly when the order is no longer `PROC
 `IAddressDirectory` throws `AddressUnknownException` when identity cannot be asked, so "unknown" and "no
 point on the map" stay two answers.
 
+An attempt is made only by whoever claims the row first (`ICourierDispatchClaims`): one `UPDATE … SET
+next_attempt_at = now + lease WHERE next_attempt_at <= now` (`CourierDispatchClaims`, a two-minute lease, well above
+the four five-second calls an attempt makes), and the winner reloads the row before it attempts. The packed handler
+and the sweeper both claim, and the sweeper saves each row as soon as its attempt ends, so a lease covers one attempt,
+not a batch. A worker that dies mid-attempt leaves the lease to run out, and the next sweep after it takes the row.
+Until 2026-11-11 the packed handler committed the row due now and then attempted, and a sweep landing in between sent
+the same order to matching twice, 0.4 ms apart (ORD-20261108-8AA3A287, the production credential run): matching's
+unique constraint refused the second (`ASSIGNMENT_FAILED`), and order logged a failed attempt next to the success. A
+repeated packed report while a retry waits its backoff no longer attempts at once; the sweeper attempts it when it is
+due. Tests run on EF's in-memory provider, which has no `ExecuteUpdate`, so they claim through
+`TrackedDispatchClaims`; `CourierDispatchClaimsPostgresTests` races two contexts for one row on Postgres.
+
 ## When the merchant is paid
 
 The escrow is released by order, never by a timer in payment. An order becomes `COMPLETED` once it is

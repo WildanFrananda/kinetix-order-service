@@ -91,7 +91,8 @@ public class FulfillmentPackedGuardTests {
                 new Everywhere(),
                 new SilentWarehouse(),
                 NullLogger<CourierDispatcher>.Instance
-            )
+            ),
+            new TrackedDispatchClaims(db)
         );
 
     [Theory]

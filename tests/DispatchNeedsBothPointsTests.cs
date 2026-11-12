@@ -112,7 +112,8 @@ public class DispatchNeedsBothPointsTests {
             directory,
             warehouse ?? new RecordingWarehouse(),
             NullLogger<CourierDispatcher>.Instance
-        )
+        ),
+        new TrackedDispatchClaims(db)
     );
 
     [Fact]
