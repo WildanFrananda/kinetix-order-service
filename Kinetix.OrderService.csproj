@@ -84,7 +84,7 @@
          2026-10-13 with 10.0.13 as the fix. Design-time only, like the MSBuild pins above: `dotnet
          publish` emits no Pkcs assembly, verified 2026-10-17 by publishing and listing the output.
          Remove it once the MSBuild pin resolves a patched Pkcs on its own. -->
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14">
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="11.0.0">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="StackExchange.Redis" Version="3.4.20" />
